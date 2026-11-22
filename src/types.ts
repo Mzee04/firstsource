@@ -11,7 +11,7 @@ export interface MarketCard {
 }
 
 export type Side = "YES" | "NO";
-export type SourceKind = "official" | "calendar" | "regional" | "other";
+export type SourceKind = "official" | "primary" | "calendar" | "regional" | "manual" | "other";
 
 export interface SourceRef {
   url: string;
@@ -73,6 +73,11 @@ export interface QueueItem {
   dryRuns: string[];
   submissionId?: string;
   lastError?: string;
+  /** Hard-to-fetch source (X, Reddit, paywall, login wall): approve/submit refuse without a PNG/JPG screenshot. */
+  requiresScreenshot?: boolean;
+  screenshotReason?: string;
+  /** Every live send attempt, all with the SAME Idempotency-Key (never regenerated). */
+  attempts?: { at: string; idempotencyKey: string; outcome: string }[];
 }
 
 export interface SubmissionRecord {

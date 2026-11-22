@@ -165,7 +165,7 @@ before(async () => {
   fs.writeFileSync(src, JSON.stringify({ calendars: [], regional: [{ place: "Northport", urls: [`${mock.url}/src/northport/news`] }] }));
 });
 after(async () => { await mock.close(); });
-const envFor = (dir: string, extra: Record<string, string> = {}) => ({ COMPETITION_SITE_URL: mock.url, DELPHI_API_URL: mock.apiUrl, DELPHI_API_ACCESS_KEY: MOCK_KEY, FIRSTSOURCE_DATA_DIR: dir, FIRSTSOURCE_SOURCES: src, ...extra });
+const envFor = (dir: string, extra: Record<string, string> = {}) => ({ COMPETITION_SITE_URL: mock.url, DELPHI_API_URL: mock.apiUrl, DELPHI_API_ACCESS_KEY: MOCK_KEY, FIRSTSOURCE_DATA_DIR: dir, FIRSTSOURCE_SOURCES: src, FIRSTSOURCE_SCREENSHOT: "off", ...extra });
 
 test("scan: a previously rejected fact is not re-fetched for preflight or re-captured", async () => {
   const cfg = loadConfig(envFor(tmp("fs-rescan-")));

@@ -52,13 +52,22 @@ export interface Mock {
   url: string;
   apiUrl: string;
   close: () => Promise<void>;
-  stats: { submitCalls: number; acceptCalls: number; requests: string[] };
+  stats: { submitCalls: number; acceptCalls: number; requests: string[]; idempotencyKeys: string[]; agentHeaders: Record<string, string>[] };
   subs: MockSub[];
+  /**
+   * Fault injection for POST /submissions (each counter is decremented when used):
+   *  - dropAfterLanding: save the submission, then kill the connection (client sees a network error)
+   *  - hangAfterLanding: save the submission, then never answer in time (client times out)
+   *  - dropBeforeLanding: kill the connection before saving anything
+   *  - listLagOnce: the next GET /submissions does not show the newest submission yet
+   */
+  faults: { dropAfterLanding: number; hangAfterLanding: number; dropBeforeLanding: number; listLag: number; hangMs: number };
   terms: { version: string; url: string; acceptedAt: string | null };
 }
 
 export async function startMock(port = 0): Promise<Mock> {
-  const stats = { submitCalls: 0, acceptCalls: 0, requests: [] as string[] };
+  const stats = { submitCalls: 0, acceptCalls: 0, requests: [] as string[], idempotencyKeys: [] as string[], agentHeaders: [] as Record<string, string>[] };
+  const faults = { dropAfterLanding: 0, hangAfterLanding: 0, dropBeforeLanding: 0, listLag: 0, hangMs: 1500 };
   const subs: MockSub[] = [];
   const idem = new Map<string, MockSub>();
   let base = "";
@@ -121,7 +130,10 @@ export async function startMock(port = 0): Promise<Mock> {
       stats.submitCalls++;
       if (!terms.acceptedAt) return err(res, 403, "terms_not_accepted", "accept the terms first", { terms: { version: terms.version, url: terms.url } });
       const key = String(req.headers["idempotency-key"] ?? "");
+      stats.idempotencyKeys.push(key);
+      stats.agentHeaders.push({ id: String(req.headers["x-agent-id"] ?? ""), harness: String(req.headers["x-agent-harness"] ?? ""), model: String(req.headers["x-agent-model"] ?? "") });
       if (!key) return err(res, 400, "invalid_request", "Idempotency-Key required", { field: "Idempotency-Key" });
+      if (faults.dropBeforeLanding > 0) { faults.dropBeforeLanding--; req.socket.destroy(); return; }
       const chunks: Buffer[] = []; for await (const c of req) chunks.push(c as Buffer);
       const raw = Buffer.concat(chunks);
       const form = await new Request(base + "/x", { method: "POST", headers: { "content-type": String(req.headers["content-type"]) }, body: raw }).formData();
@@ -139,6 +151,8 @@ export async function startMock(port = 0): Promise<Mock> {
       if (subs.filter((s) => s.market.toLowerCase() === market.toLowerCase()).length >= 3) return err(res, 429, "cap_reached", "3 submissions per market");
       const s: MockSub = { id: `sub_${subs.length + 1}`, createdAt: new Date().toISOString(), agentId: String(req.headers["x-agent-id"] ?? "") || null, note, links, files, status: "queued", market: mk.address, polls: 0, verdict: null, reason: null, bodyHash };
       subs.push(s); idem.set(key, s);
+      if (faults.dropAfterLanding > 0) { faults.dropAfterLanding--; req.socket.destroy(); return; }
+      if (faults.hangAfterLanding > 0) { faults.hangAfterLanding--; setTimeout(() => { try { if (!res.writableEnded && !req.socket.destroyed) send(res, 202, view(s)); } catch { /* client gone */ } }, faults.hangMs); return; }
       return send(res, 202, view(s), { "Retry-After": "1", Location: `/v1/submissions/${s.id}` });
     }
     m = /^\/submissions\/([^/]+)$/.exec(p);
@@ -153,7 +167,8 @@ export async function startMock(port = 0): Promise<Mock> {
     if (req.method === "GET" && p === "/submissions") {
       const limit = Math.min(Number(u.searchParams.get("limit") ?? 20), 100);
       const start = Number(u.searchParams.get("cursor") ?? 0);
-      const list = subs.filter((s) => !u.searchParams.get("market") || s.market.toLowerCase() === u.searchParams.get("market")!.toLowerCase());
+      let list = subs.filter((s) => !u.searchParams.get("market") || s.market.toLowerCase() === u.searchParams.get("market")!.toLowerCase());
+      if (faults.listLag > 0) { faults.listLag--; list = list.slice(0, -1); }
       const items = list.slice(start, start + limit).map(view);
       return send(res, 200, { items, nextCursor: start + limit < list.length ? String(start + limit) : null });
     }
@@ -163,7 +178,7 @@ export async function startMock(port = 0): Promise<Mock> {
   const addr = server.address() as { port: number };
   base = `http://127.0.0.1:${addr.port}`;
   terms.url = `${base}/terms.html`;
-  return { url: base, apiUrl: `${base}/v1`, close: () => new Promise((r) => server.close(() => r())), stats, subs, terms };
+  return { url: base, apiUrl: `${base}/v1`, close: () => new Promise((r) => { server.closeAllConnections?.(); server.close(() => r()); }), stats, subs, terms, faults };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

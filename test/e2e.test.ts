@@ -10,7 +10,8 @@ import { loadConfig, describeConfig } from "../src/config.ts";
 import { loadState, saveState } from "../src/store.ts";
 import { scan } from "../src/scan.ts";
 import { approve, getItem, reject } from "../src/queue.ts";
-import { submitItem, sync } from "../src/submit.ts";
+import { filesFor, submitItem, sync } from "../src/submit.ts";
+import { attach } from "../src/queue.ts";
 import { makeClient } from "../src/api.ts";
 import { qualification } from "../src/tracker.ts";
 import { MAX_FILES } from "../src/rules.ts";
@@ -23,7 +24,9 @@ const env = () => ({
   DELPHI_API_ACCESS_KEY: MOCK_KEY,
   FIRSTSOURCE_DATA_DIR: dir,
   FIRSTSOURCE_SOURCES: path.join(dir, "sources.json"),
+  FIRSTSOURCE_SCREENSHOT: "off", // tests never launch a browser; screenshots are attached as files
 });
+const PNG_1PX = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
 
 before(async () => {
   mock = await startMock(0);
@@ -60,6 +63,9 @@ test("end to end: scan -> review -> dry run -> gated live -> judged -> sync -> t
   assert.equal(orion.mode, "fallback", "paywalled page -> pasted text + capture");
   assert.equal(orion.files.length, 1);
   assert.ok(fs.readFileSync(orion.files[0]).subarray(0, 5).toString() === "%PDF-");
+  assert.equal(orion.requiresScreenshot, true, "paywall -> hard-to-fetch -> screenshot required");
+  assert.match(orion.note, /Key text \(quoted from the source/);
+  assert.match(orion.note, /dated screenshot showing the URL and capture date/);
   const regional = r.added.find((i) => i.fact.sourceKind === "regional");
   assert.ok(regional, "regional source used for the place market");
 
@@ -69,6 +75,12 @@ test("end to end: scan -> review -> dry run -> gated live -> judged -> sync -> t
 
   // nothing approved -> nothing can be submitted, even dry
   await assert.rejects(submitItem(state, cfg, cpi.id), /not approved/);
+
+  // the paywalled item cannot be approved until a dated screenshot is attached
+  assert.throws(() => approve(state, orion.id), /needs a dated screenshot/);
+  const shot = path.join(dir, "orion-shot.png");
+  fs.writeFileSync(shot, PNG_1PX);
+  attach(state, orion.id, shot);
 
   // approve all with a side; dry run sends nothing to POST /submissions
   for (const i of state.items) if (i.side) approve(state, i.id);
@@ -102,7 +114,14 @@ test("end to end: scan -> review -> dry run -> gated live -> judged -> sync -> t
   assert.ok(outs.every((o) => o.status === "judged"));
   const orionOut = outs.find((o) => o.itemId === orion.id)!;
   assert.equal(orionOut.verdict, "accepted", "fallback capture made the paywalled fact readable to the (mock) judge");
-  assert.equal(mock.subs.find((s) => s.id === orionOut.submissionId)!.files.length, 1);
+  assert.equal(mock.subs.find((s) => s.id === orionOut.submissionId)!.files.length, 2, "text capture + screenshot");
+  // agent ID / harness / model headers reach the API on every submit
+  assert.ok(mock.stats.agentHeaders.length > 0);
+  for (const h of mock.stats.agentHeaders) {
+    assert.equal(h.id, "firstsource");
+    assert.match(h.harness, /^firstsource\/0\.2/);
+    assert.equal(h.model, "rule-based (no LLM)");
+  }
 
   // re-submitting a submitted item is blocked locally
   await assert.rejects(submitItem(state, liveCfg, cpi.id, { live: true, client }), /not approved/);
@@ -110,7 +129,7 @@ test("end to end: scan -> review -> dry run -> gated live -> judged -> sync -> t
   // idempotency at the API: same key + same body returns the same submission
   const sub = mock.subs[0];
   const it = state.items.find((i) => i.submissionId === sub.id)!;
-  const again = await client.submitEvidence({ note: it.note, links: it.links, marketAddress: it.market, idempotencyKey: it.idempotencyKey, files: it.files.map((f) => new File([fs.readFileSync(f)], path.basename(f), { type: "application/pdf" })) });
+  const again = await client.submitEvidence({ note: it.note, links: it.links, marketAddress: it.market, idempotencyKey: it.idempotencyKey, files: filesFor(it) });
   assert.equal(again.data.id, sub.id);
 
   // sync pulls verdicts; tracker sees judged across >= 3 markets

@@ -23,7 +23,7 @@ export function makeClient(cfg: Config, fetchImpl?: typeof fetch, timeoutMs = AP
     baseUrl: cfg.apiUrl,
     apiKey: cfg.apiKey,
     agentId: cfg.agentId,
-    agentHarness: "firstsource/0.1",
+    agentHarness: cfg.agentHarness,
     agentModel: cfg.agentModel,
     fetch: withTimeout(fetchImpl ?? ((...a: Parameters<typeof fetch>) => fetch(...a)), timeoutMs),
   });

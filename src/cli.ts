@@ -7,7 +7,12 @@ import { describeConfig, loadConfig } from "./config.ts";
 import { acquireLock, loadState, saveState } from "./store.ts";
 import { loadMarkets, redraft, scan } from "./scan.ts";
 import { pickMarkets } from "./picker.ts";
-import { approvalWarnings, approve, attach, getItem, reject, setSide } from "./queue.ts";
+import { approvalWarnings, approve, attach, detach, getItem, reject, setSide } from "./queue.ts";
+import { addManual } from "./manual.ts";
+import { redraftItem } from "./capture.ts";
+import { draftFeedbackMarkdown, logEvent, logVerdicts, readLog } from "./feedbacklog.ts";
+import { findChrome } from "./screenshot.ts";
+import { screenshotCheck } from "./hardsource.ts";
 import { submitItem, sync } from "./submit.ts";
 import { makeClient } from "./api.ts";
 import { qualification, addFeedback, feedbackMarkdown } from "./tracker.ts";
@@ -17,8 +22,15 @@ import type { QueueItem, Side, State } from "./types.ts";
 import { lockedSide } from "./rules.ts";
 
 const [cmd = "help", ...rest] = process.argv.slice(2);
-const flags = new Set(rest.filter((a) => a.startsWith("--")));
-const args = rest.filter((a) => !a.startsWith("--"));
+// Options that take a value (`--date 2026-11-20`); everything else starting with -- is a boolean flag.
+const VALUE_OPTS = new Set(["--date", "--text", "--side", "--screenshot", "--question", "--publisher", "--out", "--cutoff"]);
+const opts: Record<string, string> = {};
+const positional: string[] = [];
+for (let i = 0; i < rest.length; i++) {
+  if (VALUE_OPTS.has(rest[i])) { opts[rest[i].slice(2)] = rest[i + 1] ?? ""; i++; } else positional.push(rest[i]);
+}
+const flags = new Set(positional.filter((a) => a.startsWith("--")));
+const args = positional.filter((a) => !a.startsWith("--"));
 // Commands that never read or write state.json do not take the lock.
 const STATELESS = new Set(["help", "config", "preflight", "terms", "limits", "entry", "accept-terms"]);
 let cfg: ReturnType<typeof loadConfig>;
@@ -32,7 +44,7 @@ function line(i: QueueItem): string {
 
 async function main() {
   cfg = loadConfig();
-  const known = new Set(["config", "markets", "scan", "list", "show", "set-side", "attach", "approve", "reject", "submit", "sync", "preflight", "status", "lessons", "feedback", "terms", "limits", "entry", "accept-terms"]);
+  const known = new Set(["config", "markets", "scan", "list", "show", "set-side", "attach", "detach", "add-manual", "approve", "reject", "submit", "sync", "preflight", "status", "lessons", "feedback", "terms", "limits", "entry", "accept-terms"]);
   if (known.has(cmd) && !STATELESS.has(cmd)) {
     const release = acquireLock(cfg.dataDir);
     process.on("exit", release);
@@ -40,7 +52,7 @@ async function main() {
   }
   switch (cmd) {
     case "config":
-      console.log(describeConfig(cfg));
+      console.log({ ...describeConfig(cfg), screenshotBrowser: cfg.screenshot === "off" ? "(off)" : findChrome(cfg.chrome) ?? "(none found: attach screenshots by hand)" });
       break;
     case "markets": {
       const ms = await loadMarkets(cfg);
@@ -82,8 +94,36 @@ async function main() {
     }
     case "attach": {
       const i = attach(state, args[0], args[1]);
+      redraftItem(i, cfg.noteMax);
+      save();
+      const ss = screenshotCheck(i);
+      console.log(`${i.id}: ${i.files.length}/3 file(s)${ss.ok ? "" : `; still ${ss.reason}`}`);
+      break;
+    }
+    case "detach": {
+      const i = detach(state, args[0], args[1] ?? "");
       save();
       console.log(`${i.id}: ${i.files.length}/3 file(s)`);
+      break;
+    }
+    case "add-manual": {
+      // add-manual <market> <url> --date YYYY-MM-DD --text "key text" [--side YES|NO] [--screenshot shot.png] [--question "..."] [--publisher "..."]
+      const [market, url] = args;
+      if (!market || !url || !opts.date || !opts.text) throw new Error('usage: add-manual <market> <url> --date YYYY-MM-DD --text "key text quoted from the source" [--side YES|NO] [--screenshot shot.png] [--question "..."] [--cutoff ISO]');
+      let card: { address: string; question: string; evidenceCutoffAt?: string } | undefined;
+      if (opts.question) card = { address: market, question: opts.question, evidenceCutoffAt: opts.cutoff };
+      else {
+        const ms = await loadMarkets(cfg);
+        card = ms.find((m) => m.address.toLowerCase() === market.toLowerCase());
+        if (!card) throw new Error(`market ${market} is not in markets.json (pass --question "..." to queue it anyway)`);
+      }
+      const side = opts.side ? opts.side.toUpperCase() : undefined;
+      if (side && side !== "YES" && side !== "NO") throw new Error("--side must be YES or NO");
+      const it = await addManual(state, cfg, { market: card, url, date: opts.date, text: opts.text, side: side as Side | undefined, screenshot: opts.screenshot, publisher: opts.publisher });
+      save();
+      console.log("queued " + line(it));
+      console.log(`  files: ${it.files.map((f) => f.split("/").pop()).join(", ") || "(none)"}${it.requiresScreenshot ? `  (screenshot required: ${it.screenshotReason})` : ""}`);
+      console.log("  review with: show " + it.id);
       break;
     }
     case "approve": {
@@ -107,7 +147,7 @@ async function main() {
       for (const id of ids) {
         try {
           const o = await submitItem(state, cfg, id, { live, wait: !flags.has("--no-wait"), client, onSubmitted: save });
-          console.log(o.mode === "dry-run" ? `DRY RUN ${o.itemId}: nothing sent. Request saved to ${o.dryRunFile}` : `LIVE ${o.itemId} -> submission ${o.submissionId}${o.alreadyLanded ? " (already landed earlier; nothing re-sent)" : ""}: ${o.status} verdict=${o.verdict ?? "-"} ${o.reason ?? ""}`);
+          console.log(o.mode === "dry-run" ? `DRY RUN ${o.itemId}: nothing sent. Request saved to ${o.dryRunFile}` : `LIVE ${o.itemId} -> submission ${o.submissionId}${o.alreadyLanded ? " (already landed earlier; nothing re-sent)" : ""}${o.attempts && o.attempts > 1 ? ` after ${o.attempts} attempts (same Idempotency-Key)` : ""}: ${o.status} verdict=${o.verdict ?? "-"} ${o.reason ?? ""}`);
         } catch (e) {
           console.error(`${id}: ${(e as Error).message}`);
           process.exitCode = 1;
@@ -115,11 +155,15 @@ async function main() {
           save();
         }
       }
+      if (live) logVerdicts(cfg.dataDir, state);
       break;
     }
     case "sync": {
-      const r = await sync(state, makeClient(cfg));
+      let r;
+      try { r = await sync(state, makeClient(cfg)); } catch (e) { logEvent(cfg.dataDir, { kind: (e as { code?: string }).code ? "api_error" : "network_error", code: (e as { code?: string }).code, detail: `sync: ${(e as Error).message}` }); throw e; }
       save();
+      const nv = logVerdicts(cfg.dataDir, state);
+      if (nv) console.log(`logged ${nv} new verdict rationale(s) to the feedback log`);
       console.log(`synced: ${r.fetched} fetched, ${r.imported} imported, ${r.updated} updated`);
       break;
     }
@@ -147,6 +191,13 @@ async function main() {
       const sub = args[0];
       if (sub === "add") { const e = addFeedback(state, args[1], args.slice(2).join(" ")); save(); console.log(`logged ${e.category}: ${e.text}`); }
       else if (sub === "export") { const f = `${cfg.dataDir}/feedback.md`; fs.writeFileSync(f, feedbackMarkdown(state)); console.log(`wrote ${f} (draft only, nothing posted)`); }
+      else if (sub === "draft") {
+        logVerdicts(cfg.dataDir, state);
+        const f = opts.out || `${cfg.dataDir}/feedback-draft.md`;
+        const events = readLog(cfg.dataDir);
+        fs.writeFileSync(f, draftFeedbackMarkdown(events, state.feedback));
+        console.log(`wrote ${f} from ${events.length} logged event(s): a DRAFT for you to review. Nothing was sent.`);
+      }
       else for (const f of state.feedback) console.log(`${f.at.slice(0, 10)} [${f.category}] ${f.text}`);
       break;
     }
@@ -185,6 +236,10 @@ async function main() {
   show <id>                   full item + drafted note
   set-side <id> YES|NO        set/override the side (one side per market is enforced)
   attach <id> <file>          add a screenshot/PDF (max 3 files)
+  detach <id> <file|n>        remove an attachment from a pending item
+  add-manual <market> <url> --date YYYY-MM-DD --text "quoted key text" [--side YES|NO] [--screenshot shot.png]
+                              queue evidence from X/Reddit/paywalled pages you read yourself; needs a
+                              dated screenshot (auto-captured with headless Chrome if available)
   approve <id> | reject <id> [reason]
   submit <id>... [--all-approved]   DRY RUN: writes the exact request to data/dryruns, sends nothing
   submit <id> --live [--no-wait]    real submit; also needs FIRSTSOURCE_LIVE=1
@@ -193,6 +248,7 @@ async function main() {
   lessons                     what past verdicts taught us
   preflight <url> [key text]  check whether a plain fetch (like the judge) can read a page
   feedback add <cat> <text> | feedback list | feedback export
+  feedback draft [--out f.md] deduplicated feedback notes from data/feedback-log.jsonl (draft; never sent)
   terms | limits | entry <market>   read-only API calls
   accept-terms                human-only; needs FIRSTSOURCE_ACCEPT_TERMS=<version>`);
   }

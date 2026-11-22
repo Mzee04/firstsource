@@ -4,6 +4,7 @@ import path from "node:path";
 import type { QueueItem, Side, State } from "./types.ts";
 import { MAX_FILES, capCheck, cutoffCheck, lockSide, releaseSideIfUnused, sideCheck } from "./rules.ts";
 import { checkNovelty } from "./novelty.ts";
+import { screenshotCheck } from "./hardsource.ts";
 
 /** Attachment types the FAQ lists as accepted ("pdf, png, jpg, csv, text"). Anything else is refused. */
 export const FILE_TYPES: Record<string, string> = {
@@ -41,6 +42,8 @@ export function approve(state: State, id: string, now = Date.now()): QueueItem {
   if (!nv.novel) throw new Error(`cannot approve: duplicate of ${nv.duplicateOf}`);
   if (it.files.length > MAX_FILES) throw new Error(`cannot approve: ${it.files.length} files (max ${MAX_FILES})`);
   for (const f of it.files) if (!fs.existsSync(f)) throw new Error(`cannot approve: file missing ${f}`);
+  const ss = screenshotCheck(it);
+  if (!ss.ok) throw new Error(`cannot approve: ${ss.reason}`);
   lockSide(state, it.market, it.side!);
   it.status = "approved";
   it.decidedAt = new Date(now).toISOString();
@@ -50,7 +53,7 @@ export function approve(state: State, id: string, now = Date.now()): QueueItem {
 /** Advisory (not blocking): the FAQ asks for a screenshot showing the URL and date when the judge cannot read a link. */
 export function approvalWarnings(it: QueueItem): string[] {
   const w: string[] = [];
-  if (it.mode === "fallback" && !it.files.some((f) => IMAGE_EXT.has(path.extname(f).toLowerCase()))) {
+  if (it.mode === "fallback" && !it.requiresScreenshot && !it.files.some((f) => IMAGE_EXT.has(path.extname(f).toLowerCase()))) {
     w.push("fallback item has no screenshot: the FAQ asks for a screenshot showing the URL and date (use attach <id> shot.png); the text PDF capture alone may not be enough");
   }
   if (it.sideCall.confidence === "low") w.push(`side ${it.side} came from a keyword guess (${it.sideCall.reason}); double-check it`);
@@ -86,7 +89,18 @@ export function attach(state: State, id: string, file: string): QueueItem {
   if (!FILE_TYPES[ext]) throw new Error(`file type ${ext || "(none)"} not accepted; use ${Object.keys(FILE_TYPES).join(", ")}`);
   if (fs.statSync(abs).size === 0) throw new Error(`file ${abs} is empty`);
   if (it.files.includes(abs)) return it;
-  if (it.files.length >= MAX_FILES) throw new Error(`max ${MAX_FILES} files per submission`);
+  if (it.files.length >= MAX_FILES) throw new Error(`max ${MAX_FILES} files per submission; remove one first with: detach ${it.id} <file>`);
   it.files.push(abs);
+  return it;
+}
+
+/** Remove an attachment (by path, basename, or 1-based index) from a pending item. The file on disk is kept. */
+export function detach(state: State, id: string, which: string): QueueItem {
+  const it = getItem(state, id);
+  if (it.status !== "pending") throw new Error("detach only from pending items");
+  const n = Number(which);
+  const idx = Number.isInteger(n) && n >= 1 && n <= it.files.length ? n - 1 : it.files.findIndex((f) => f === path.resolve(which) || path.basename(f) === which);
+  if (idx < 0) throw new Error(`item ${it.id} has no attachment ${which}`);
+  it.files.splice(idx, 1);
   return it;
 }

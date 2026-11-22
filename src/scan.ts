@@ -13,8 +13,9 @@ import { checkNovelty, fingerprint } from "./novelty.ts";
 import { inferSide } from "./side.ts";
 import { lockedSide } from "./rules.ts";
 import { isBlockedHost, preflight } from "./preflight.ts";
-import { textPdf } from "./pdf.ts";
-import { draftNote } from "./drafter.ts";
+import { buildEvidence, defaultCapturer, redraftItem, type Capturer } from "./capture.ts";
+import { hardHostList } from "./hardsource.ts";
+import { logEvent } from "./feedbacklog.ts";
 import { domainWeight } from "./learn.ts";
 import { hostOf, sha256, uuidFromSeed } from "./text.ts";
 
@@ -57,11 +58,13 @@ export interface ScanReport {
   watchesAdded: number;
 }
 
-export async function scan(state: State, cfg: Config, opts: { fetch?: typeof fetch; now?: number; perMarket?: number; limit?: number } = {}): Promise<ScanReport> {
+export async function scan(state: State, cfg: Config, opts: { fetch?: typeof fetch; now?: number; perMarket?: number; limit?: number; capture?: Capturer | null } = {}): Promise<ScanReport> {
   const now = opts.now ?? Date.now();
   const markets = await loadMarkets(cfg, opts.fetch);
   const picks = pickMarkets(markets, state, { now, limit: opts.limit ?? 8 });
   const scfg = loadSourcesConfig(cfg.sourcesFile);
+  const hardHosts = hardHostList(scfg.hardToFetch, cfg.hardHosts);
+  const capture = opts.capture === undefined ? defaultCapturer(cfg) : opts.capture;
   const rep: ScanReport = { picks, added: [], skipped: [], unresolvedSources: [], watchesAdded: 0 };
   for (const p of picks) {
     const m = p.market;
@@ -73,9 +76,18 @@ export async function scan(state: State, cfg: Config, opts: { fetch?: typeof fet
     const facts = [];
     for (const s of plan.sources) {
       if (state.lessons.avoidDomains.includes(hostOf(s.url))) { rep.skipped.push({ market: m.address, why: `avoided domain ${hostOf(s.url)}` }); continue; }
-      if (isBlockedHost(s.url)) { rep.skipped.push({ market: m.address, why: `source ${s.url} needs a browser/login: paste its key text manually and attach a dated screenshot` }); continue; }
+      if (isBlockedHost(s.url)) {
+        rep.skipped.push({ market: m.address, why: `source ${s.url} needs a browser/login: read it yourself, then queue it with add-manual (pasted key text + dated screenshot)` });
+        logEvent(cfg.dataDir, { kind: "unreadable_source", detail: "login/JS-walled host: not readable by a plain fetch, skipped", url: s.url, market: m.address });
+        continue;
+      }
       const f = await plainFetch(s.url, { fetch: opts.fetch });
-      if (!f.ok) { rep.skipped.push({ market: m.address, why: `source ${s.url}: ${f.error ?? `HTTP ${f.status}`}` }); continue; }
+      if (!f.ok) {
+        const why = f.error ?? `HTTP ${f.status}`;
+        rep.skipped.push({ market: m.address, why: `source ${s.url}: ${why}` });
+        logEvent(cfg.dataDir, { kind: "fetch_failure", detail: why, url: s.url, market: m.address });
+        continue;
+      }
       const ex = extractFacts(m, s, f, now);
       for (const w of ex.watches) {
         if (!state.watches.some((x) => x.market === w.market && x.date === w.date && x.source === w.source)) { state.watches.push(w); rep.watchesAdded++; }
@@ -97,16 +109,9 @@ export async function scan(state: State, cfg: Config, opts: { fetch?: typeof fet
       const pf = await preflight(fact.source, fact.text, { fetch: opts.fetch, now });
       const forced = state.lessons.forceFallbackDomains.includes(hostOf(fact.source));
       if (forced) pf.reasons.push("past verdicts say the judge could not read this domain");
-      const mode = pf.readable && !forced ? "link" : "fallback";
-      const files: string[] = [];
-      if (mode === "fallback") {
-        const dir = path.join(cfg.dataDir, "captures");
-        fs.mkdirSync(dir, { recursive: true });
-        const file = path.join(dir, `${id}-capture-${pf.checkedAt.slice(0, 10)}.pdf`);
-        fs.writeFileSync(file, textPdf(`Dated capture for Delphi evidence (FirstSource) - ${pf.checkedAt}`, `Source URL: ${fact.source}\nPublisher: ${fact.publisher}\nFact date: ${fact.date}\nCaptured (UTC): ${pf.checkedAt}\nWhy a capture: ${pf.reasons.join("; ")}\n\nKey text, quoted from the source:\n"${fact.text}"\n\nMarket: ${m.question}`));
-        files.push(file);
-      }
+      if (!pf.readable) logEvent(cfg.dataDir, { kind: "unreadable_source", detail: pf.reasons.join("; "), url: fact.source, market: m.address, itemId: id });
       const side = sideCall.side;
+      const ev = await buildEvidence({ cfg, id, market: m.address, question: m.question, fact, side, pf, hardHosts, forced, capture, now });
       const item: QueueItem = {
         id,
         market: m.address,
@@ -115,11 +120,13 @@ export async function scan(state: State, cfg: Config, opts: { fetch?: typeof fet
         fact,
         side,
         sideCall,
-        note: draftNote({ question: m.question, fact, side, preflight: { ...pf, readable: mode === "link" }, max: cfg.noteMax }),
+        note: ev.note,
         links: [fact.source],
-        files,
+        files: ev.files,
         preflight: pf,
-        mode,
+        mode: ev.mode,
+        requiresScreenshot: ev.requiresScreenshot || undefined,
+        screenshotReason: ev.screenshotReason,
         status: "pending",
         idempotencyKey: uuidFromSeed(id),
         fingerprint: fp,
@@ -136,5 +143,5 @@ export async function scan(state: State, cfg: Config, opts: { fetch?: typeof fet
 
 /** Recompute the note after a reviewer changes the side. */
 export function redraft(item: QueueItem, maxLen = 1200): void {
-  item.note = draftNote({ question: item.question, fact: item.fact, side: item.side, preflight: { ...item.preflight, readable: item.mode === "link" }, max: maxLen });
+  redraftItem(item, maxLen);
 }

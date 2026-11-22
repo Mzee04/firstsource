@@ -1,6 +1,6 @@
 {
   "name": "firstsource",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "FirstSource: evidence-mining agent for the Delphi Agent Arena (local, dry-run by default)",
   "scripts": {
     "fs": "tsx src/cli.ts",

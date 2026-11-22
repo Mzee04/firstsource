@@ -8,6 +8,11 @@ export const ENV = {
   apiKeyLegacy: "DELPHI_API_KEY",
   agentId: "AGENT_ID",
   agentModel: "AGENT_MODEL",
+  agentHarness: "AGENT_HARNESS",
+  hardHosts: "FIRSTSOURCE_HARD_HOSTS", // extra hard-to-fetch hosts, comma separated
+  screenshot: "FIRSTSOURCE_SCREENSHOT", // "auto" (default: capture with headless Chrome if found) or "off"
+  chrome: "FIRSTSOURCE_CHROME", // path to Chrome/Chromium for screenshots
+  maxAttempts: "FIRSTSOURCE_MAX_ATTEMPTS", // live send attempts on timeout/network error (same key), 1-5
   live: "FIRSTSOURCE_LIVE", // must be "1" for any real submit
   acceptTerms: "FIRSTSOURCE_ACCEPT_TERMS", // must equal the terms version for accept-terms to run
   dataDir: "FIRSTSOURCE_DATA_DIR",
@@ -23,6 +28,11 @@ export interface Config {
   apiKey?: string;
   agentId: string;
   agentModel?: string;
+  agentHarness: string;
+  hardHosts: string[];
+  screenshot: "auto" | "off";
+  chrome?: string;
+  maxAttempts: number;
   live: boolean;
   dataDir: string;
   sourcesFile: string;
@@ -47,6 +57,14 @@ export function headerValue(raw: string | undefined, def: string | undefined, na
   return v;
 }
 
+export const AGENT_HARNESS = "firstsource/0.2 (node; @gensyn-ai/gensyn-delphi-sdk 2.4.0)";
+
+function screenshotMode(raw: string | undefined): "auto" | "off" {
+  if (raw === undefined || raw === "" || raw === "auto") return "auto";
+  if (raw === "off" || raw === "0") return "off";
+  throw new Error(`${ENV.screenshot} must be "auto" or "off"`);
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   return {
     siteUrl: env[ENV.site] || undefined,
@@ -55,6 +73,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     agentId: headerValue(env[ENV.agentId], "firstsource", ENV.agentId)!,
     // The contest asks agents to send ID, harness and model. FirstSource uses no LLM.
     agentModel: headerValue(env[ENV.agentModel], "rule-based (no LLM)", ENV.agentModel),
+    agentHarness: headerValue(env[ENV.agentHarness], AGENT_HARNESS, ENV.agentHarness)!,
+    hardHosts: (env[ENV.hardHosts] ?? "").split(",").map((h) => h.trim().toLowerCase()).filter(Boolean),
+    screenshot: screenshotMode(env[ENV.screenshot]),
+    chrome: env[ENV.chrome] || undefined,
+    maxAttempts: intEnv(env[ENV.maxAttempts], 3, ENV.maxAttempts, 1, 5),
     live: env[ENV.live] === "1",
     dataDir: path.resolve(env[ENV.dataDir] || "data"),
     sourcesFile: path.resolve(env[ENV.sources] || "config/sources.json"),
@@ -72,6 +95,10 @@ export function describeConfig(c: Config): Record<string, unknown> {
     apiKey: c.apiKey ? "(set)" : "(unset)",
     agentId: c.agentId,
     agentModel: c.agentModel ?? "(unset)",
+    agentHarness: c.agentHarness,
+    hardHosts: c.hardHosts,
+    screenshot: c.screenshot,
+    maxAttempts: c.maxAttempts,
     noteMax: c.noteMax,
     perMarket: c.perMarket,
     live: c.live,
@@ -81,4 +108,4 @@ export function describeConfig(c: Config): Record<string, unknown> {
   };
 }
 
-export const USER_AGENT = "FirstSource/0.1 (+evidence preflight; plain fetch, no JS)";
+export const USER_AGENT = "FirstSource/0.2 (+evidence preflight; plain fetch, no JS)";

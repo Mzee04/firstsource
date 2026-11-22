@@ -3,7 +3,7 @@
 // content type, enough server-rendered text, no paywall/JS wall, and (when given) the key text.
 import type { PreflightResult } from "./types.ts";
 import { plainFetch } from "./fetcher.ts";
-import { hostOf, htmlToText, tokens } from "./text.ts";
+import { decodeEntities, hostOf, htmlToText, tokens } from "./text.ts";
 
 /** Hosts the judge is known to fail on (login walls / JS apps). Checked without fetching. */
 export const BLOCKED_HOSTS = ["x.com", "twitter.com", "mobile.twitter.com", "reddit.com", "old.reddit.com", "t.me", "facebook.com", "instagram.com", "linkedin.com", "tiktok.com", "discord.com", "discord.gg", "threads.net"];
@@ -40,11 +40,11 @@ export async function preflight(url: string, keyText?: string, opts: { fetch?: t
   if (f.status && (f.status < 200 || f.status >= 300)) reasons.push(`HTTP ${f.status}`);
   if (f.finalUrl && isBlockedHost(f.finalUrl)) reasons.push(`redirected to ${hostOf(f.finalUrl)}`);
   const isPdf = /application\/pdf/i.test(f.contentType);
-  const readableType = isPdf || /text\/html|text\/plain|application\/xhtml|application\/json|text\/xml|application\/xml/i.test(f.contentType);
+  const readableType = isPdf || /text\/html|text\/plain|application\/xhtml|application\/json|text\/xml|application\/xml|application\/(rss|atom)\+xml/i.test(f.contentType);
   if (f.status && !readableType) reasons.push(`content-type "${f.contentType || "none"}" not readable`);
   let text = "";
   if (!isPdf && readableType && !f.error) {
-    text = /html/i.test(f.contentType) ? htmlToText(f.body) : f.body;
+    text = /html|xml/i.test(f.contentType) ? htmlToText(f.body.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, (_, c: string) => decodeEntities(c))) : f.body;
     if (text.length < MIN_TEXT) reasons.push(`only ${text.length} chars of server-rendered text (JS-rendered page?)`);
     if (JSWALL.test(text) && text.length < 3000) reasons.push("page asks for JavaScript");
     if (PAYWALL.test(text)) reasons.push("paywall / sign-in wall text found");
