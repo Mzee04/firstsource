@@ -1,6 +1,582 @@
 {
-  "_comment": "Fill on day one from markets.json + the agent guide. Only URLs you have opened and verified. Nothing here is guessed.",
-  "official": [],
-  "calendars": [],
-  "regional": []
+  "_comment": "Curated public primary sources and official release calendars (checked 2026-11-22 with curl; 404s and sites that refuse a plain fetch were dropped). `match` is a case-insensitive regex on the market question. `type` is informational: rss | page | calendar. Market-declared dataSources are always used first; add more verified URLs here on day one.",
+  "hardToFetch": [],
+  "official": [
+    {
+      "topic": "macro",
+      "type": "rss",
+      "label": "BLS latest releases (US CPI, jobs, PPI)",
+      "url": "https://www.bls.gov/feed/bls_latest.rss",
+      "match": "\\b(BLS|Bureau of Labor Statistics|nonfarm|payrolls?|JOLTS)\\b|(?=.*\\b(US|U\\.S\\.|USA|United States|America|American)\\b)(?=.*\\b(CPI|inflation|consumer prices?|unemployment|jobless|jobs|PPI|producer prices?|wages?|employment)\\b)"
+    },
+    {
+      "topic": "macro",
+      "type": "rss",
+      "label": "BEA news releases (US GDP, PCE)",
+      "url": "https://apps.bea.gov/rss/rss.xml",
+      "match": "\\b(BEA|Bureau of Economic Analysis|PCE)\\b|(?=.*\\b(US|U\\.S\\.|USA|United States|America|American)\\b)(?=.*\\b(GDP|gross domestic product|personal income|personal consumption|trade deficit|current account)\\b)"
+    },
+    {
+      "topic": "macro",
+      "type": "rss",
+      "label": "Federal Reserve press releases",
+      "url": "https://www.federalreserve.gov/feeds/press_all.xml",
+      "match": "\\b(Fed|Federal Reserve|FOMC|Powell|fed funds|federal funds)\\b"
+    },
+    {
+      "topic": "macro",
+      "type": "rss",
+      "label": "ECB press releases",
+      "url": "https://www.ecb.europa.eu/rss/press.html",
+      "match": "\\b(ECB|European Central Bank|Lagarde)\\b|(?=.*\\b(euro ?area|eurozone)\\b)(?=.*\\b(rate|rates|deposit|refinancing|cut|hike)\\b)"
+    },
+    {
+      "topic": "macro",
+      "type": "page",
+      "label": "Eurostat euro indicators",
+      "url": "https://ec.europa.eu/eurostat/web/euro-indicators",
+      "match": "\\bEurostat\\b|(?=.*\\b(euro ?area|eurozone|EU|European Union)\\b)(?=.*\\b(inflation|HICP|GDP|unemployment|CPI)\\b)"
+    },
+    {
+      "topic": "macro",
+      "type": "rss",
+      "label": "ONS release calendar feed (UK)",
+      "url": "https://www.ons.gov.uk/releasecalendar?rss",
+      "match": "\\b(ONS|Office for National Statistics)\\b|(?=.*\\b(UK|U\\.K\\.|United Kingdom|Britain|British|England)\\b)(?=.*\\b(CPI|inflation|GDP|unemployment|labour market|retail sales|wages)\\b)"
+    },
+    {
+      "topic": "macro",
+      "type": "rss",
+      "label": "Bank of Japan what's new",
+      "url": "https://www.boj.or.jp/en/rss/whatsnew.xml",
+      "match": "\\b(BoJ|Bank of Japan|Ueda)\\b|(?=.*\\b(Japan|Japanese)\\b)(?=.*\\b(rate|rates|policy|yen|JGB)\\b)"
+    },
+    {
+      "topic": "macro",
+      "type": "rss",
+      "label": "Bank of England news",
+      "url": "https://www.bankofengland.co.uk/rss/news",
+      "match": "\\b(BoE|Bank of England|Bailey|MPC)\\b|(?=.*\\b(UK|U\\.K\\.|United Kingdom|Britain|British|England)\\b)(?=.*\\b(interest rate|bank rate|base rate)\\b)"
+    },
+    {
+      "topic": "macro",
+      "type": "page",
+      "label": "Statistics Canada, The Daily",
+      "url": "https://www150.statcan.gc.ca/n1/dai-quo/index-eng.htm",
+      "match": "\\bStatistics Canada\\b|(?=.*\\b(Canada|Canadian)\\b)(?=.*\\b(CPI|inflation|GDP|unemployment|jobs|employment)\\b)"
+    },
+    {
+      "topic": "macro",
+      "type": "page",
+      "label": "Reserve Bank of India press releases",
+      "url": "https://www.rbi.org.in/Scripts/BS_PressReleaseDisplay.aspx",
+      "match": "\\b(RBI|Reserve Bank of India)\\b|(?=.*\\b(India|Indian)\\b)(?=.*\\b(repo rate|inflation|rupee)\\b)"
+    },
+    {
+      "topic": "macro",
+      "type": "page",
+      "label": "Central Bank of Nigeria",
+      "url": "https://www.cbn.gov.ng/",
+      "match": "\\b(CBN|Central Bank of Nigeria|naira)\\b|(?=.*\\b(Nigeria|Nigerian)\\b)(?=.*\\b(MPR|monetary policy rate|interest rate)\\b)"
+    },
+    {
+      "topic": "macro",
+      "type": "page",
+      "label": "National Bureau of Statistics (Nigeria)",
+      "url": "https://nigerianstat.gov.ng/",
+      "match": "(?=.*\\b(Nigeria|Nigerian)\\b)(?=.*\\b(inflation|CPI|GDP|unemployment|NBS)\\b)"
+    },
+    {
+      "topic": "macro",
+      "type": "page",
+      "label": "South African Reserve Bank",
+      "url": "https://www.resbank.co.za/en/home",
+      "match": "\\b(SARB|South African Reserve Bank|rand)\\b|(?=.*\\b(South Africa|South African)\\b)(?=.*\\b(repo rate|interest rate|inflation)\\b)"
+    },
+    {
+      "topic": "macro",
+      "type": "page",
+      "label": "Deutsche Bundesbank press releases",
+      "url": "https://www.bundesbank.de/en/press/press-releases",
+      "match": "\\bBundesbank\\b|(?=.*\\b(Germany|German)\\b)(?=.*\\b(inflation|GDP|economy|recession)\\b)"
+    },
+    {
+      "topic": "macro",
+      "type": "page",
+      "label": "IMF World Economic Outlook",
+      "url": "https://www.imf.org/en/Publications/WEO",
+      "match": "\\b(IMF|International Monetary Fund|World Economic Outlook|global growth)\\b"
+    },
+    {
+      "topic": "macro",
+      "type": "page",
+      "label": "EIA Weekly Petroleum Status Report",
+      "url": "https://www.eia.gov/petroleum/supply/weekly/",
+      "match": "\\b(crude|oil inventor(y|ies)|gasoline|EIA|petroleum|WTI|Brent)\\b"
+    },
+    {
+      "topic": "macro",
+      "type": "rss",
+      "label": "EIA Today in Energy",
+      "url": "https://www.eia.gov/rss/todayinenergy.xml",
+      "match": "\\b(EIA|natural gas|electricity prices?|energy prices?)\\b"
+    },
+    {
+      "topic": "crypto",
+      "type": "rss",
+      "label": "SEC press releases",
+      "url": "https://www.sec.gov/news/pressreleases.rss",
+      "match": "\\b(SEC|Securities and Exchange Commission|ETFs?|19b-4)\\b"
+    },
+    {
+      "topic": "crypto",
+      "type": "rss",
+      "label": "SEC EDGAR latest filings (Atom)",
+      "url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=&company=&dateb=&owner=include&start=0&count=40&output=atom",
+      "match": "\\b(ETFs?|S-1|19b-4|10-K|10-Q|8-K|EDGAR|IPO)\\b"
+    },
+    {
+      "topic": "crypto",
+      "type": "page",
+      "label": "CFTC press releases",
+      "url": "https://www.cftc.gov/PressRoom/PressReleases",
+      "match": "\\b(CFTC|Commodity Futures Trading Commission|prediction markets?|event contracts?)\\b"
+    },
+    {
+      "topic": "crypto",
+      "type": "rss",
+      "label": "CoinDesk (news; secondary source)",
+      "url": "https://www.coindesk.com/arc/outboundfeeds/rss/",
+      "match": "\\b(bitcoin|BTC|ethereum|ETH|crypto|cryptocurrency|stablecoins?|solana|XRP|blockchain|DeFi)\\b"
+    },
+    {
+      "topic": "crypto",
+      "type": "rss",
+      "label": "Ethereum Foundation blog",
+      "url": "https://blog.ethereum.org/feed.xml",
+      "match": "\\b(ethereum|ETH|Ethereum Foundation|Pectra|Fusaka|Glamsterdam|hard ?fork)\\b"
+    },
+    {
+      "topic": "crypto",
+      "type": "page",
+      "label": "ethereum.org roadmap",
+      "url": "https://ethereum.org/en/roadmap/",
+      "match": "\\b(Pectra|Fusaka|Glamsterdam|danksharding|ethereum (upgrade|roadmap))\\b"
+    },
+    {
+      "topic": "crypto",
+      "type": "page",
+      "label": "Bitcoin Core releases",
+      "url": "https://bitcoincore.org/en/releases/",
+      "match": "\\b(Bitcoin Core|BIP-?\\d+)\\b|\\bbitcoin (node|client|software|release)\\b"
+    },
+    {
+      "topic": "crypto",
+      "type": "rss",
+      "label": "Bitcoin Core blog",
+      "url": "https://bitcoincore.org/en/rss.xml",
+      "match": "\\b(Bitcoin Core)\\b"
+    },
+    {
+      "topic": "tech",
+      "type": "rss",
+      "label": "Apple Newsroom",
+      "url": "https://www.apple.com/newsroom/rss-feed.rss",
+      "match": "\\b(Apple|iPhone|iPad|MacBook|iOS|macOS|Vision Pro|WWDC|AirPods)\\b"
+    },
+    {
+      "topic": "tech",
+      "type": "rss",
+      "label": "Google (The Keyword blog)",
+      "url": "https://blog.google/rss/",
+      "match": "\\b(Google|Gemini|Pixel|Alphabet|YouTube|DeepMind)\\b"
+    },
+    {
+      "topic": "tech",
+      "type": "rss",
+      "label": "Android Developers blog",
+      "url": "https://android-developers.googleblog.com/feeds/posts/default",
+      "match": "\\bAndroid\\b"
+    },
+    {
+      "topic": "tech",
+      "type": "rss",
+      "label": "Microsoft official blog",
+      "url": "https://blogs.microsoft.com/feed/",
+      "match": "\\b(Microsoft|Windows|Copilot|Xbox|Azure)\\b"
+    },
+    {
+      "topic": "tech",
+      "type": "rss",
+      "label": "OpenAI news",
+      "url": "https://openai.com/news/rss.xml",
+      "match": "\\b(OpenAI|ChatGPT|GPT-?\\d(\\.\\d)?|Sora)\\b"
+    },
+    {
+      "topic": "tech",
+      "type": "page",
+      "label": "Anthropic news",
+      "url": "https://www.anthropic.com/news",
+      "match": "\\b(Anthropic|Claude)\\b"
+    },
+    {
+      "topic": "tech",
+      "type": "rss",
+      "label": "NVIDIA newsroom",
+      "url": "https://nvidianews.nvidia.com/releases.xml",
+      "match": "\\b(NVIDIA|GeForce|Blackwell|Rubin|GTC)\\b"
+    },
+    {
+      "topic": "tech",
+      "type": "rss",
+      "label": "GitHub changelog",
+      "url": "https://github.blog/changelog/feed/",
+      "match": "\\bGitHub\\b"
+    },
+    {
+      "topic": "tech",
+      "type": "rss",
+      "label": "Meta newsroom",
+      "url": "https://about.fb.com/news/feed/",
+      "match": "\\b(Meta|Facebook|Instagram|WhatsApp|Llama|Zuckerberg)\\b"
+    },
+    {
+      "topic": "tech",
+      "type": "rss",
+      "label": "Samsung Newsroom",
+      "url": "https://news.samsung.com/global/feed",
+      "match": "\\b(Samsung|Galaxy)\\b"
+    },
+    {
+      "topic": "tech",
+      "type": "rss",
+      "label": "NASA news releases",
+      "url": "https://www.nasa.gov/news-release/feed/",
+      "match": "\\b(NASA|Artemis|ISS|space station)\\b"
+    },
+    {
+      "topic": "politics",
+      "type": "page",
+      "label": "US Federal Election Commission",
+      "url": "https://www.fec.gov/",
+      "match": "\\b(FEC|Federal Election Commission|campaign finance)\\b"
+    },
+    {
+      "topic": "politics",
+      "type": "page",
+      "label": "US Election Assistance Commission",
+      "url": "https://www.eac.gov/",
+      "match": "(?=.*\\b(US|U\\.S\\.|USA|United States|America|American)\\b)(?=.*\\b(election|midterms?|voting|ballots?)\\b)"
+    },
+    {
+      "topic": "politics",
+      "type": "page",
+      "label": "INEC Nigeria",
+      "url": "https://inecnigeria.org/",
+      "match": "\\bINEC\\b|(?=.*\\b(Nigeria|Nigerian)\\b)(?=.*\\b(election|polls?|governorship|vote|voting)\\b)"
+    },
+    {
+      "topic": "politics",
+      "type": "page",
+      "label": "Australian Electoral Commission",
+      "url": "https://www.aec.gov.au/",
+      "match": "(?=.*\\b(Australia|Australian)\\b)(?=.*\\b(election|referendum|vote|polls?)\\b)"
+    },
+    {
+      "topic": "politics",
+      "type": "page",
+      "label": "Federal Returning Officer (Germany)",
+      "url": "https://www.bundeswahlleiterin.de/en/",
+      "match": "\\bBundestag\\b|(?=.*\\b(Germany|German)\\b)(?=.*\\b(election|vote|polls?)\\b)"
+    },
+    {
+      "topic": "politics",
+      "type": "page",
+      "label": "Kenya IEBC",
+      "url": "https://www.iebc.or.ke/",
+      "match": "\\bIEBC\\b|(?=.*\\b(Kenya|Kenyan)\\b)(?=.*\\b(election|vote|polls?)\\b)"
+    },
+    {
+      "topic": "politics",
+      "type": "page",
+      "label": "European Parliament election results",
+      "url": "https://results.elections.europa.eu/",
+      "match": "\\b(European Parliament|MEPs?|European elections?)\\b"
+    }
+  ],
+  "calendars": [
+    {
+      "topic": "macro",
+      "type": "calendar",
+      "label": "BLS release schedule",
+      "url": "https://www.bls.gov/schedule/news_release/",
+      "match": "\\b(BLS|Bureau of Labor Statistics|nonfarm|payrolls?|JOLTS)\\b|(?=.*\\b(US|U\\.S\\.|USA|United States|America|American)\\b)(?=.*\\b(CPI|inflation|consumer prices?|unemployment|jobless|jobs|PPI|producer prices?|wages?|employment)\\b)"
+    },
+    {
+      "topic": "macro",
+      "type": "calendar",
+      "label": "BEA release schedule",
+      "url": "https://www.bea.gov/news/schedule",
+      "match": "\\b(BEA|Bureau of Economic Analysis|PCE)\\b|(?=.*\\b(US|U\\.S\\.|USA|United States|America|American)\\b)(?=.*\\b(GDP|gross domestic product|personal income|personal consumption|trade deficit|current account)\\b)"
+    },
+    {
+      "topic": "macro",
+      "type": "calendar",
+      "label": "FOMC meeting calendar",
+      "url": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm",
+      "match": "\\b(Fed|Federal Reserve|FOMC|Powell|fed funds|federal funds)\\b"
+    },
+    {
+      "topic": "macro",
+      "type": "calendar",
+      "label": "ECB Governing Council meeting calendar",
+      "url": "https://www.ecb.europa.eu/press/calendars/mgcgc/html/index.en.html",
+      "match": "\\b(ECB|European Central Bank|Lagarde)\\b|(?=.*\\b(euro ?area|eurozone)\\b)(?=.*\\b(rate|rates|deposit|refinancing|cut|hike)\\b)"
+    },
+    {
+      "topic": "macro",
+      "type": "calendar",
+      "label": "Eurostat release calendar",
+      "url": "https://ec.europa.eu/eurostat/news/release-calendar",
+      "match": "\\bEurostat\\b|(?=.*\\b(euro ?area|eurozone|EU|European Union)\\b)(?=.*\\b(inflation|HICP|GDP|unemployment|CPI)\\b)"
+    },
+    {
+      "topic": "macro",
+      "type": "calendar",
+      "label": "ONS release calendar",
+      "url": "https://www.ons.gov.uk/releasecalendar",
+      "match": "\\b(ONS|Office for National Statistics)\\b|(?=.*\\b(UK|U\\.K\\.|United Kingdom|Britain|British|England)\\b)(?=.*\\b(CPI|inflation|GDP|unemployment|labour market|retail sales|wages)\\b)"
+    },
+    {
+      "topic": "macro",
+      "type": "calendar",
+      "label": "BoJ Monetary Policy Meeting schedule",
+      "url": "https://www.boj.or.jp/en/mopo/mpmsche_minu/index.htm",
+      "match": "\\b(BoJ|Bank of Japan|Ueda)\\b|(?=.*\\b(Japan|Japanese)\\b)(?=.*\\b(rate|rates|policy|yen|JGB)\\b)"
+    },
+    {
+      "topic": "macro",
+      "type": "calendar",
+      "label": "BoE upcoming MPC dates",
+      "url": "https://www.bankofengland.co.uk/monetary-policy/upcoming-mpc-dates",
+      "match": "\\b(BoE|Bank of England|Bailey|MPC)\\b|(?=.*\\b(UK|U\\.K\\.|United Kingdom|Britain|British|England)\\b)(?=.*\\b(interest rate|bank rate|base rate)\\b)"
+    },
+    {
+      "topic": "macro",
+      "type": "calendar",
+      "label": "Bank of Canada policy rate announcements",
+      "url": "https://www.bankofcanada.ca/core-functions/monetary-policy/key-interest-rate/",
+      "match": "\\bBank of Canada\\b|(?=.*\\b(Canada|Canadian)\\b)(?=.*\\b(interest rate|policy rate|rate cut|rate hike)\\b)"
+    },
+    {
+      "topic": "macro",
+      "type": "calendar",
+      "label": "RBA Board meeting schedule",
+      "url": "https://www.rba.gov.au/schedules-events/board-meeting-schedules.html",
+      "match": "\\b(RBA|Reserve Bank of Australia)\\b|(?=.*\\b(Australia|Australian)\\b)(?=.*\\b(cash rate|interest rate)\\b)"
+    },
+    {
+      "topic": "macro",
+      "type": "calendar",
+      "label": "ABS release calendar (Australia)",
+      "url": "https://www.abs.gov.au/release-calendar/future-releases",
+      "match": "\\b(ABS|Australian Bureau of Statistics)\\b|(?=.*\\b(Australia|Australian)\\b)(?=.*\\b(CPI|inflation|GDP|unemployment|jobs)\\b)"
+    },
+    {
+      "topic": "macro",
+      "type": "calendar",
+      "label": "NBS China release calendar",
+      "url": "https://www.stats.gov.cn/english/PressRelease/ReleaseCalendar/",
+      "match": "\\bNational Bureau of Statistics of China\\b|(?=.*\\b(China|Chinese)\\b)(?=.*\\b(CPI|inflation|GDP|PMI|industrial output|retail sales)\\b)"
+    },
+    {
+      "topic": "sports",
+      "type": "calendar",
+      "label": "NFL schedule",
+      "url": "https://www.nfl.com/schedules/",
+      "match": "\\b(NFL|Super Bowl|AFC|NFC)\\b"
+    },
+    {
+      "topic": "sports",
+      "type": "calendar",
+      "label": "NBA schedule",
+      "url": "https://www.nba.com/schedule",
+      "match": "\\b(NBA|NBA Finals)\\b"
+    },
+    {
+      "topic": "sports",
+      "type": "calendar",
+      "label": "MLB schedule",
+      "url": "https://www.mlb.com/schedule",
+      "match": "\\b(MLB|World Series)\\b"
+    },
+    {
+      "topic": "sports",
+      "type": "calendar",
+      "label": "NHL schedule",
+      "url": "https://www.nhl.com/schedule",
+      "match": "\\b(NHL|Stanley Cup)\\b"
+    },
+    {
+      "topic": "sports",
+      "type": "calendar",
+      "label": "Premier League fixtures",
+      "url": "https://www.premierleague.com/fixtures",
+      "match": "\\b(Premier League|EPL)\\b"
+    },
+    {
+      "topic": "sports",
+      "type": "calendar",
+      "label": "UEFA Champions League fixtures and results",
+      "url": "https://www.uefa.com/uefachampionsleague/fixtures-results/",
+      "match": "\\b(Champions League|UCL)\\b"
+    },
+    {
+      "topic": "sports",
+      "type": "calendar",
+      "label": "Formula 1 2026 calendar",
+      "url": "https://www.formula1.com/en/racing/2026",
+      "match": "\\b(F1|Formula (1|One)|Grand Prix)\\b"
+    },
+    {
+      "topic": "sports",
+      "type": "calendar",
+      "label": "ICC fixtures and results",
+      "url": "https://www.icc-cricket.com/fixtures-results",
+      "match": "\\b(ICC|cricket|T20|ODI)\\b"
+    },
+    {
+      "topic": "sports",
+      "type": "calendar",
+      "label": "LaLiga calendar",
+      "url": "https://www.laliga.com/en-GB/laliga-easports/calendar",
+      "match": "\\b(La ?Liga|Real Madrid|Barcelona)\\b"
+    },
+    {
+      "topic": "sports",
+      "type": "calendar",
+      "label": "Bundesliga matchday",
+      "url": "https://www.bundesliga.com/en/bundesliga/matchday",
+      "match": "\\bBundesliga\\b"
+    },
+    {
+      "topic": "sports",
+      "type": "calendar",
+      "label": "CAF (Confederation of African Football)",
+      "url": "https://www.cafonline.com/",
+      "match": "\\b(CAF|AFCON|Africa Cup of Nations)\\b"
+    },
+    {
+      "topic": "politics",
+      "type": "calendar",
+      "label": "IFES ElectionGuide elections calendar (NGO, global)",
+      "url": "https://www.electionguide.org/elections/",
+      "match": "\\b(election|referendum|presidential|parliamentary|general election)\\b"
+    }
+  ],
+  "regional": [
+    {
+      "place": "Nigeria",
+      "aliases": [
+        "Nigerian",
+        "Lagos",
+        "Abuja"
+      ],
+      "urls": [
+        "https://www.cbn.gov.ng/",
+        "https://nigerianstat.gov.ng/",
+        "https://inecnigeria.org/"
+      ]
+    },
+    {
+      "place": "United Kingdom",
+      "aliases": [
+        "UK",
+        "U.K.",
+        "Britain",
+        "British",
+        "England"
+      ],
+      "urls": [
+        "https://www.ons.gov.uk/releasecalendar?rss",
+        "https://www.bankofengland.co.uk/rss/news"
+      ]
+    },
+    {
+      "place": "Japan",
+      "aliases": [
+        "Japanese"
+      ],
+      "urls": [
+        "https://www.boj.or.jp/en/rss/whatsnew.xml"
+      ]
+    },
+    {
+      "place": "Canada",
+      "aliases": [
+        "Canadian"
+      ],
+      "urls": [
+        "https://www150.statcan.gc.ca/n1/dai-quo/index-eng.htm"
+      ]
+    },
+    {
+      "place": "India",
+      "aliases": [
+        "Indian"
+      ],
+      "urls": [
+        "https://www.rbi.org.in/Scripts/BS_PressReleaseDisplay.aspx"
+      ]
+    },
+    {
+      "place": "South Africa",
+      "aliases": [
+        "South African"
+      ],
+      "urls": [
+        "https://www.resbank.co.za/en/home"
+      ]
+    },
+    {
+      "place": "Kenya",
+      "aliases": [
+        "Kenyan"
+      ],
+      "urls": [
+        "https://www.iebc.or.ke/"
+      ]
+    },
+    {
+      "place": "Australia",
+      "aliases": [
+        "Australian"
+      ],
+      "urls": [
+        "https://www.abs.gov.au/release-calendar/future-releases",
+        "https://www.aec.gov.au/"
+      ]
+    },
+    {
+      "place": "Germany",
+      "aliases": [
+        "German"
+      ],
+      "urls": [
+        "https://www.bundesbank.de/en/press/press-releases",
+        "https://www.bundeswahlleiterin.de/en/"
+      ]
+    },
+    {
+      "place": "Eurozone",
+      "aliases": [
+        "euro area",
+        "Euro Area"
+      ],
+      "urls": [
+        "https://ec.europa.eu/eurostat/web/euro-indicators",
+        "https://www.ecb.europa.eu/rss/press.html"
+      ]
+    }
+  ]
 }
