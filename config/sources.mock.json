@@ -1,0 +1,6 @@
+{
+  "_comment": "Mock-only config used by tests and the dry-run demo (points at the local mock server on port 8787).",
+  "official": [],
+  "calendars": [{ "match": "CPI|inflation", "url": "http://127.0.0.1:8787/src/stats/calendar", "label": "Statistics Office release calendar" }],
+  "regional": [{ "place": "Northport", "aliases": ["Northport City"], "urls": ["http://127.0.0.1:8787/src/northport/news"] }]
+}

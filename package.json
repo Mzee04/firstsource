@@ -1,0 +1,23 @@
+{
+  "name": "firstsource",
+  "version": "0.1.0",
+  "description": "FirstSource: evidence-mining agent for the Delphi Agent Arena (local, dry-run by default)",
+  "scripts": {
+    "fs": "tsx src/cli.ts",
+    "mock": "tsx mock/server.ts",
+    "test": "node --import tsx --test test/*.test.ts",
+    "typecheck": "tsc -p ."
+  },
+  "author": "",
+  "license": "UNLICENSED",
+  "type": "module",
+  "dependencies": {
+    "@gensyn-ai/gensyn-delphi-sdk": "2.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
+  },
+  "private": true
+}
