@@ -41,23 +41,23 @@ test("dedup: rejected items do not block; submission notes (incl. listSubmission
 });
 
 // ---- one side per market
-test("one-side: approving the opposite side of a locked market is refused", () => {
+test("one-side: approving the opposite side of a locked market is refused", async () => {
   const s = state();
   const a = item(M1, "Inflation rose to 3.2% in October.", "YES");
   const b = item(M1, "Core inflation fell to 2.1% in October.", "NO");
   s.items.push(a, b);
-  approve(s, a.id);
+  await approve(s, a.id);
   assert.equal(lockedSide(s, M1), "YES");
-  assert.throws(() => approve(s, b.id), /locked to YES/);
+  await assert.rejects(async () => await approve(s, b.id), /locked to YES/);
   assert.equal(sideCheck(s, M2, "NO").ok, true);
 });
-test("one-side: no side -> cannot approve until a reviewer sets one", () => {
+test("one-side: no side -> cannot approve until a reviewer sets one", async () => {
   const s = state();
   const a = item(M1, "Something happened with 3 figures.", null);
   s.items.push(a);
-  assert.throws(() => approve(s, a.id), /no side/);
+  await assert.rejects(async () => await approve(s, a.id), /no side/);
   setSide(s, a.id, "NO");
-  assert.equal(approve(s, a.id).status, "approved");
+  assert.equal((await approve(s, a.id)).status, "approved");
 });
 test("one-side: lock survives even when the approved item is later submitted", () => {
   const s = state();
@@ -67,14 +67,14 @@ test("one-side: lock survives even when the approved item is later submitted", (
 });
 
 // ---- per-market cap
-test("cap: max 3 per market counting submitted + approved (reserved)", () => {
+test("cap: max 3 per market counting submitted + approved (reserved)", async () => {
   const s = state();
   s.submissions.push(sub(M1, "judged"), sub(M1, "queued"));
   const a = item(M1, "Fact A 1.1% rose", "YES"), b = item(M1, "Fact B 2.2% rose", "YES");
   s.items.push(a, b);
-  approve(s, a.id);
+  await approve(s, a.id);
   assert.equal(usedSlots(s, M1), 3);
-  assert.throws(() => approve(s, b.id), /cap reached/);
+  await assert.rejects(async () => await approve(s, b.id), /cap reached/);
   assert.equal(capCheck(s, M2).remaining, 3);
 });
 test("cap: server remainingOnMarket wins when lower", () => {
@@ -134,20 +134,21 @@ test("queue: submitted items cannot be rejected; max 3 files", async () => {
   b.files = ["/tmp/a.png", "/tmp/b.png", "/tmp/c.pdf"];
   const extra = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "fs-att-")), "d.txt");
   fs.writeFileSync(extra, "x");
-  assert.throws(() => attach(s, b.id, extra), /max 3/);
+  await assert.rejects(async () => await attach(s, b.id, extra), /max 3/);
 });
 test("learn: tags reasons and derives fallback/avoid policies", () => {
   const s = state();
   s.submissions.push(
     sub(M1, "judged", { verdict: "rejected", reason: "Could not read the linked page.", links: ["https://paywalled.example/a"] }),
-    sub(M1, "judged", { verdict: "rejected", reason: "Irrelevant to the settlement rule.", links: ["https://blog.example/a"] }),
-    sub(M2, "judged", { verdict: "rejected", reason: "Opinion piece, not a primary source.", links: ["https://blog.example/b"] }),
+    sub(M1, "judged", { verdict: "rejected", reason: "Failed to fetch the source; the page was unreadable.", links: ["https://paywalled.example/b"] }),
+    sub(M1, "judged", { verdict: "irrelevant", reason: "Irrelevant to the settlement rule.", links: ["https://blog.example/a"] }),
+    sub(M2, "judged", { verdict: "irrelevant", reason: "Does not relate to the question.", links: ["https://blog.example/b"] }),
     sub(M3, "judged", { verdict: "accepted", reason: "Dated official figure.", links: ["https://stats.example/r"] }),
   );
   assert.deepEqual(tagReason("Duplicate of an earlier submission"), ["duplicate"]);
-  assert.equal(outcomeOf(s.submissions[3]), "accepted");
+  assert.equal(outcomeOf(s.submissions[4]), "accepted");
   const r = learn(s);
-  assert.equal(r.newlyLearned, 4);
+  assert.equal(r.newlyLearned, 5);
   assert.deepEqual(s.lessons.forceFallbackDomains, ["paywalled.example"]);
   assert.deepEqual(s.lessons.avoidDomains, ["blog.example"]);
   assert.equal(learn(s).newlyLearned, 0, "idempotent");

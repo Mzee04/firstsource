@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { QueueItem, Side, State } from "./types.ts";
-import { MAX_FILES, MAX_ITEMS, capCheck, cutoffCheck, filesCheck, itemCount, itemsCheck, lockSide, releaseSideIfUnused, sideCheck } from "./rules.ts";
+import { MAX_FILES, MAX_ITEMS, capCheck, cutoffCheck, filesCheck, itemCount, itemsCheck, lockSide, releaseSideIfUnused, sideCheck, sideCompatible } from "./rules.ts";
 import { checkNovelty } from "./novelty.ts";
 import { screenshotCheck } from "./hardsource.ts";
 
@@ -32,7 +32,7 @@ export function getItem(state: State, id: string): QueueItem {
   return hits[0];
 }
 
-export function approve(state: State, id: string, now = Date.now()): QueueItem {
+export async function approve(state: State, id: string, now = Date.now()): Promise<QueueItem> {
   const it = getItem(state, id);
   if (it.status !== "pending") throw new Error(`item ${it.id} is ${it.status}, not pending`);
   const co = cutoffCheck(it, now);
@@ -46,7 +46,7 @@ export function approve(state: State, id: string, now = Date.now()): QueueItem {
   if (it.files.length > MAX_FILES) throw new Error(`cannot approve: ${it.files.length} files (max ${MAX_FILES})`);
   const ic = itemsCheck(it.note, it.links, it.files);
   if (!ic.ok) throw new Error(`cannot approve: ${ic.reason}`);
-  const fc = filesCheck(it.files);
+  const fc = await filesCheck(it.files);
   if (!fc.ok) throw new Error(`cannot approve: ${fc.reason}`);
   if (it.note.length > 8_000) throw new Error(`cannot approve: note is ${it.note.length} characters (max 8000)`);
   const ss = screenshotCheck(it);
@@ -82,12 +82,14 @@ export function reject(state: State, id: string, reason = "rejected by reviewer"
 export function setSide(state: State, id: string, side: Side): QueueItem {
   const it = getItem(state, id);
   if (it.status !== "pending") throw new Error(`item ${it.id} is ${it.status}; only pending items can change side`);
+  const sc = sideCompatible(state, it.market, side);
+  if (!sc.ok) throw new Error(`cannot set-side: ${sc.reason}`);
   it.side = side;
   it.sideCall = { ...it.sideCall, reason: `${it.sideCall.reason} | set by reviewer to ${side}` };
   return it;
 }
 
-export function attach(state: State, id: string, file: string): QueueItem {
+export async function attach(state: State, id: string, file: string): Promise<QueueItem> {
   const it = getItem(state, id);
   if (it.status !== "pending") throw new Error("attach only to pending items");
   const abs = path.resolve(file);
@@ -109,7 +111,7 @@ export function attach(state: State, id: string, file: string): QueueItem {
   if (itemCount(it.note, it.links, [...it.files, abs]) > MAX_ITEMS) {
     throw new Error(`max ${MAX_ITEMS} items per submission (the note, each link and each file count as 1); detach one first with: detach ${it.id} <file>`);
   }
-  const fc = filesCheck([...it.files, abs]);
+  const fc = await filesCheck([...it.files, abs]);
   if (!fc.ok) throw new Error(fc.reason!);
   it.files.push(abs);
   return it;

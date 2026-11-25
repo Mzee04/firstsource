@@ -5,6 +5,7 @@ import type { Fact, MarketCard, SourceRef, Watch } from "./types.ts";
 import type { Fetched } from "./fetcher.ts";
 import { decodeEntities, findDates, hostOf, htmlToText, keywords, sentences, todayUtc, tokens } from "./text.ts";
 
+/** Publication date from page metadata or byline text. Not HTTP Last-Modified. */
 export function pageDate(f: Fetched): string | null {
   const b = f.body;
   const meta =
@@ -20,7 +21,7 @@ export function pageDate(f: Fetched): string | null {
     const d = findDates(m[2])[0];
     if (d) return d;
   }
-  if (f.lastModified && Number.isFinite(Date.parse(f.lastModified))) return new Date(f.lastModified).toISOString().slice(0, 10);
+  // HTTP Last-Modified is a cache/file timestamp, not the fact's publication date — never use it here.
   return null;
 }
 

@@ -44,6 +44,13 @@ test("drafter: note is dated, sourced, sided, and capped", () => {
   assert.ok(n.length <= 600);
   assert.match(n, /^As of 2026-11-13: /);
   assert.match(n, /Key text/);
+  assert.match(n, /points toward YES/);
+});
+test("drafter: truncation never drops the side line", () => {
+  const fact = { market: "0x1", date: "2026-11-13", text: "CPI rose to 3.2% in October as the office reported a broad increase in prices across the basket. ".repeat(40), source: "https://s.example/r", sourceKind: "official" as const, publisher: "S", fetchedAt: "", relevance: 1 };
+  const n = draftNote({ question: "Will CPI be above 3.0% in 2026?", fact, side: "NO", preflight: { url: "", checkedAt: "2026-11-20T10:00:00Z", readable: true, textLength: 2000, keyTextFound: true, reasons: [] }, max: 180 });
+  assert.ok(n.length <= 180, n);
+  assert.match(n, /points toward NO\.?$/m);
 });
 test("sources: declared URLs used, named sources reported, places detected from config", () => {
   const cfg = { calendars: [{ match: "CPI", url: "https://cal.example" }], regional: [{ place: "Northport", urls: ["https://np.example"] }], official: [] };

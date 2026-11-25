@@ -35,9 +35,17 @@ export function isTransient(e: unknown): boolean {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-export function filesFor(item: QueueItem): File[] {
+/** Live submit is one-id-at-a-time under human review; --all-approved is dry-run only. */
+export function assertSubmitFlags(opts: { live?: boolean; allApproved?: boolean }): void {
+  if (opts.live && opts.allApproved) {
+    throw new Error("refusing: --all-approved cannot be combined with --live; submit live items one id at a time");
+  }
+}
+
+
+export async function filesFor(item: QueueItem): Promise<File[]> {
   if (item.files.length > MAX_FILES) throw new Error(`max ${MAX_FILES} files`);
-  const fc = filesCheck(item.files);
+  const fc = await filesCheck(item.files);
   if (!fc.ok) throw new Error(fc.reason!);
   return item.files.map((f) => {
     const type = FILE_TYPES[path.extname(f).toLowerCase()];
@@ -47,7 +55,7 @@ export function filesFor(item: QueueItem): File[] {
 }
 
 /** Local guards shared by dry-run and live. */
-export function localChecks(state: State, item: QueueItem, remoteRemaining?: number, now = Date.now()): string[] {
+export async function localChecks(state: State, item: QueueItem, remoteRemaining?: number, now = Date.now()): Promise<string[]> {
   const errs: string[] = [];
   if (item.status !== "approved") errs.push(`item is ${item.status}, not approved`);
   const co = cutoffCheck(item, now);
@@ -61,7 +69,7 @@ export function localChecks(state: State, item: QueueItem, remoteRemaining?: num
   if (item.files.length > MAX_FILES) errs.push(`too many files (${item.files.length})`);
   const ic = itemsCheck(item.note, item.links, item.files);
   if (!ic.ok) errs.push(ic.reason!);
-  const fc = filesCheck(item.files);
+  const fc = await filesCheck(item.files);
   if (!fc.ok) errs.push(fc.reason!);
   if (item.note.length > 8_000) errs.push(`note is ${item.note.length} characters (max 8000)`);
   const ss = screenshotCheck(item);
@@ -98,9 +106,9 @@ export async function submitItem(
 ): Promise<SubmitOutcome> {
   const item = getItem(state, id);
   const now = opts.now ?? Date.now();
-  const errs = localChecks(state, item, undefined, now);
+  const errs = await localChecks(state, item, undefined, now);
   if (errs.length) throw new Error(`blocked: ${errs.join("; ")}`);
-  const files = filesFor(item);
+  const files = await filesFor(item);
   ensureIdempotencyKey(item);
   const params = { note: item.note, links: item.links, marketAddress: item.market, idempotencyKey: item.idempotencyKey };
 
@@ -135,7 +143,7 @@ export async function submitItem(
   }
   const { data: entry } = await client.getEntryState(item.market);
   if (!entry.canSubmit) throw new Error(`live submit refused by entry state: ${entry.reason ?? "cannot submit"}`);
-  const remoteErrs = localChecks(state, item, entry.remainingOnMarket, Date.now());
+  const remoteErrs = await localChecks(state, item, entry.remainingOnMarket, Date.now());
   if (remoteErrs.length) throw new Error(`blocked: ${remoteErrs.join("; ")}`);
   const perMarket = submissionsPerMarketOf(limits);
   if (perMarket !== undefined) {

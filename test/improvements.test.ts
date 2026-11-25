@@ -87,11 +87,11 @@ test("add-manual: with a user screenshot it is queued with quoted key text and o
   assert.ok(it.files[0].endsWith(".png"));
   assert.equal(it.idempotencyKey, uuidFromSeed(it.id), "deterministic key stored at queue time");
   // official cap is 3 items (note + link + screenshot); a fourth item is refused
-  assert.throws(() => attach(s, it.id, pngFile(dir, "extra.png")), /max 3 items/);
+  await assert.rejects(async () => await attach(s, it.id, pngFile(dir, "extra.png")), /max 3 items/);
   detach(s, it.id, "shot.png");
-  assert.throws(() => approve(s, it.id), /needs a dated screenshot/);
-  attach(s, it.id, pngFile(dir, "again.png"));
-  approve(s, it.id);
+  await assert.rejects(async () => await approve(s, it.id), /needs a dated screenshot/);
+  await attach(s, it.id, pngFile(dir, "again.png"));
+  await approve(s, it.id);
   const o = await submitItem(s, cfg, it.id);
   const req = JSON.parse(fs.readFileSync(o.dryRunFile!, "utf8"));
   assert.equal(req.params.files.length, 1);
@@ -126,7 +126,7 @@ test("scan: a paywalled source is flagged, captured automatically when a capture
   await scan(s2, loadConfig(envFor(tmp("fs-scanshot3-"))), { capture: null });
   const o2 = s2.items.find((i) => i.fact.text.includes("Vega-2"))!;
   assert.equal(o2.files.length, 0, "no screenshot available: leave the file slot free");
-  assert.throws(() => approve(s2, o2.id), /needs a dated screenshot/);
+  await assert.rejects(async () => await approve(s2, o2.id), /needs a dated screenshot/);
 });
 
 test("screenshot: real headless capture shows URL + date (opt-in: FIRSTSOURCE_TEST_SCREENSHOT=1)", { skip: process.env.FIRSTSOURCE_TEST_SCREENSHOT !== "1" || !findChrome() }, async () => {
@@ -145,8 +145,8 @@ async function approvedOn(dir: string, suffix: string): Promise<{ s: State; it: 
   const it = s.items.find((i) => i.market === MARKET(suffix))!;
   assert.ok(it, `candidate on market c${suffix}`);
   if (!it.side) setSide(s, it.id, "YES");
-  if (it.requiresScreenshot) attach(s, it.id, pngFile(dir));
-  approve(s, it.id);
+  if (it.requiresScreenshot) await attach(s, it.id, pngFile(dir));
+  await approve(s, it.id);
   return { s, it, cfg };
 }
 

@@ -12,7 +12,8 @@
   "license": "MIT",
   "type": "module",
   "dependencies": {
-    "@gensyn-ai/gensyn-delphi-sdk": "^2.4.1"
+    "@gensyn-ai/gensyn-delphi-sdk": "^2.4.1",
+    "pdf-lib": "^1.17.1"
   },
   "devDependencies": {
     "@types/node": "^24.19.2",

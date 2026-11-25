@@ -76,13 +76,13 @@ test("end to end: scan -> review -> dry run -> gated live -> judged -> sync -> t
   await assert.rejects(submitItem(state, cfg, cpi.id), /not approved/);
 
   // the paywalled item cannot be approved until a dated screenshot is attached
-  assert.throws(() => approve(state, orion.id), /needs a dated screenshot/);
+  await assert.rejects(async () => await approve(state, orion.id), /needs a dated screenshot/);
   const shot = path.join(dir, "orion-shot.png");
   fs.writeFileSync(shot, PNG_1PX);
-  attach(state, orion.id, shot);
+  await attach(state, orion.id, shot);
 
   // approve all with a side; dry run sends nothing to POST /submissions
-  for (const i of state.items) if (i.side) approve(state, i.id);
+  for (const i of state.items) if (i.side) await approve(state, i.id);
   const approved = state.items.filter((i) => i.status === "approved");
   assert.ok(approved.length >= 4);
   for (const i of approved) {
@@ -128,7 +128,7 @@ test("end to end: scan -> review -> dry run -> gated live -> judged -> sync -> t
   // idempotency at the API: same key + same body returns the same submission
   const sub = mock.subs[0];
   const it = state.items.find((i) => i.submissionId === sub.id)!;
-  const again = await client.submitEvidence({ note: it.note, links: it.links, marketAddress: it.market, idempotencyKey: it.idempotencyKey, files: filesFor(it) });
+  const again = await client.submitEvidence({ note: it.note, links: it.links, marketAddress: it.market, idempotencyKey: it.idempotencyKey, files: await filesFor(it) });
   assert.equal(again.data.id, sub.id);
 
   // sync pulls verdicts; tracker sees judged across >= 3 markets
@@ -155,7 +155,7 @@ test("server-side cap: a 4th submit on one market is refused before sending", as
   const cand = state.items.find((i) => i.market === market && i.side);
   assert.ok(cand, "scan found a candidate for the full market");
   assert.ok(r.picks.some((p) => p.market.address === market), "picker does not know the server count before sync");
-  approve(state, cand.id);
+  await approve(state, cand.id);
   const before = mock.stats.submitCalls;
   // The live path first pulls this account's submissions on the market. The e2e run above already sent
   // this exact note from "another state file", so it is reconciled as already landed; otherwise the

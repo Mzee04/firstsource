@@ -10,7 +10,7 @@ import { isBlockedHost, preflight } from "./preflight.ts";
 import { buildEvidence, checkScreenshotFile, defaultCapturer, type Capturer } from "./capture.ts";
 import { hardHostList, hasImage } from "./hardsource.ts";
 import { loadSourcesConfig } from "./sources.ts";
-import { capCheck, cutoffCheck, lockedSide } from "./rules.ts";
+import { capCheck, cutoffCheck, sideCompatible } from "./rules.ts";
 import { hostOf, isUrl, sha256, uuidFromSeed } from "./text.ts";
 import { logEvent } from "./feedbacklog.ts";
 
@@ -39,8 +39,8 @@ export async function addManual(state: State, cfg: Config, inp: ManualInput, opt
   const nv = checkNovelty(state, m.address, text);
   if (!nv.novel) throw new Error(`refusing to queue: duplicate of ${nv.duplicateOf}`);
   const sideCall = inp.side ? { side: inp.side, confidence: "high" as const, reason: "set by reviewer (add-manual)" } : inferSide(m.question, text);
-  const locked = lockedSide(state, m.address);
-  if (locked && sideCall.side && sideCall.side !== locked) throw new Error(`refusing to queue: argues ${sideCall.side}, market locked to ${locked}`);
+  const sc = sideCompatible(state, m.address, sideCall.side);
+  if (!sc.ok) throw new Error(`refusing to queue: ${sc.reason}`);
   const fp = fingerprint(text);
   const id = sha256(`${m.address.toLowerCase()}|${fp}`).slice(0, 10);
   if (state.items.some((i) => i.id === id)) throw new Error(`already queued as ${id}`);

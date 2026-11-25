@@ -13,7 +13,7 @@ import { redraftItem } from "./capture.ts";
 import { draftFeedbackMarkdown, logEvent, logVerdicts, readLog } from "./feedbacklog.ts";
 import { findChrome } from "./screenshot.ts";
 import { screenshotCheck } from "./hardsource.ts";
-import { submitItem, sync } from "./submit.ts";
+import { assertSubmitFlags, submitItem, sync } from "./submit.ts";
 import { explainEvidenceError, makeClient } from "./api.ts";
 import { sendFeedback } from "./feedbackapi.ts";
 import { qualification, addFeedback, feedbackMarkdown } from "./tracker.ts";
@@ -94,7 +94,7 @@ async function main() {
       break;
     }
     case "attach": {
-      const i = attach(state, args[0], args[1]);
+      const i = await attach(state, args[0], args[1]);
       redraftItem(i, cfg.noteMax);
       save();
       const ss = screenshotCheck(i);
@@ -128,7 +128,7 @@ async function main() {
       break;
     }
     case "approve": {
-      const i = approve(state, args[0]);
+      const i = await approve(state, args[0]);
       save();
       console.log("approved " + line(i));
       for (const w of approvalWarnings(i)) console.log("  warning: " + w);
@@ -142,8 +142,10 @@ async function main() {
     }
     case "submit": {
       const live = flags.has("--live");
-      const ids = flags.has("--all-approved") ? state.items.filter((i) => i.status === "approved").map((i) => i.id) : args;
-      if (!ids.length) throw new Error("usage: submit <id>... [--live] [--no-wait] | submit --all-approved");
+      const allApproved = flags.has("--all-approved");
+      assertSubmitFlags({ live, allApproved });
+      const ids = allApproved ? state.items.filter((i) => i.status === "approved").map((i) => i.id) : args;
+      if (!ids.length) throw new Error("usage: submit <id>... [--live] [--no-wait] | submit --all-approved  (not together with --live)");
       const client = live ? makeClient(cfg) : undefined;
       for (const id of ids) {
         try {
@@ -258,7 +260,8 @@ async function main() {
                               dated screenshot (auto-captured with headless Chrome if available)
   approve <id> | reject <id> [reason]
   submit <id>... [--all-approved]   DRY RUN: writes the exact request to data/dryruns, sends nothing
-  submit <id> --live [--no-wait]    real submit; also needs FIRSTSOURCE_LIVE=1
+                                  (--all-approved cannot be combined with --live)
+  submit <id>... --live [--no-wait] real submit of listed ids; also needs FIRSTSOURCE_LIVE=1
   sync                        pull our submissions + verdicts (listSubmissions)
   status                      qualification tracker (10 judged / 3 markets), slots, watches
   lessons                     what past verdicts taught us

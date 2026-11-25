@@ -77,31 +77,31 @@ test("queue: an ambiguous or too-short id prefix is an error, never a guess", ()
   assert.equal(getItem(s, "abcd2").id, "abcd2222");
 });
 
-test("queue: attach refuses directories, empty files and types the FAQ does not list", () => {
+test("queue: attach refuses directories, empty files and types the FAQ does not list", async () => {
   const s = state();
   const a = item("0xM", "fact 1%", "YES");
   s.items.push(a);
   const d = tmp("fs-attach-");
-  assert.throws(() => attach(s, a.id, d), /no file/);
+  await assert.rejects(() => attach(s, a.id, d), /no file/);
   fs.writeFileSync(path.join(d, "page.html"), "<p>x</p>");
-  assert.throws(() => attach(s, a.id, path.join(d, "page.html")), /not accepted/);
+  await assert.rejects(() => attach(s, a.id, path.join(d, "page.html")), /not accepted/);
   fs.writeFileSync(path.join(d, "empty.png"), "");
-  assert.throws(() => attach(s, a.id, path.join(d, "empty.png")), /empty/);
+  await assert.rejects(() => attach(s, a.id, path.join(d, "empty.png")), /empty/);
   fs.writeFileSync(path.join(d, "shot.png"), "png");
-  assert.equal(attach(s, a.id, path.join(d, "shot.png")).files.length, 1);
+  assert.equal((await attach(s, a.id, path.join(d, "shot.png"))).files.length, 1);
 });
 
-test("side lock: un-approving the only approved item releases the market's side", () => {
+test("side lock: un-approving the only approved item releases the market's side", async () => {
   const s = state();
   const a = item("0xM", "rate rose to 3.2%", "YES");
   const b = item("0xM", "levy vote failed 2-7", "NO");
   s.items.push(a, b);
-  approve(s, a.id);
+  await approve(s, a.id);
   assert.equal(lockedSide(s, "0xM"), "YES");
-  assert.throws(() => approve(s, b.id), /locked to YES/);
+  await assert.rejects(() => approve(s, b.id), /locked to YES/);
   reject(s, a.id, "changed my mind");
   assert.equal(lockedSide(s, "0xM"), null);
-  approve(s, b.id);
+  await approve(s, b.id);
   assert.equal(lockedSide(s, "0xm"), "NO");
 });
 
@@ -112,15 +112,15 @@ test("side lock: survives a lost state file via the side written in synced notes
   assert.equal(sideCheck(s, "0xM", "YES").ok, false);
 });
 
-test("cutoff: the evidence cutoff is the submission deadline (FAQ); approve and submit refuse after it", () => {
+test("cutoff: the evidence cutoff is the submission deadline (FAQ); approve and submit refuse after it", async () => {
   const s = state();
   const a = item("0xM", "rate rose to 3.2%", "YES");
   a.cutoffAt = "2026-11-30T17:00:00Z";
   s.items.push(a);
   const after = Date.parse("2026-12-01T00:00:00Z");
-  assert.throws(() => approve(s, a.id, after), /cutoff .* has passed/);
-  approve(s, a.id, Date.parse("2026-11-29T00:00:00Z"));
-  assert.ok(localChecks(s, a, undefined, after).some((e) => /cutoff/.test(e)));
+  await assert.rejects(() => approve(s, a.id, after), /cutoff .* has passed/);
+  await approve(s, a.id, Date.parse("2026-11-29T00:00:00Z"));
+  assert.ok((await localChecks(s, a, undefined, after)).some((e) => /cutoff/.test(e)));
   assert.equal(cutoffCheck({ cutoffAt: undefined }).ok, true);
 });
 
@@ -187,7 +187,7 @@ test("live: a submit that landed but was never recorded is reconciled, not re-se
   const s = loadState(cfg.dataDir);
   await scan(s, cfg);
   const it = s.items.find((i) => i.side && i.mode === "link" && i.files.length === 0)!;
-  approve(s, it.id);
+  await approve(s, it.id);
   const raw = new EvidenceClient({ baseUrl: mock.apiUrl, apiKey: MOCK_KEY });
   if (!mock.terms.acceptedAt) await raw.acceptTerms(mock.terms.version); // mock only: owner accepted out of band
   // the first attempt "timed out" after the server saved it
@@ -214,7 +214,7 @@ test("live: the same fact already sent by another run on this account is blocked
   await scan(s, cfg);
   const it = s.items.find((i) => i.side && i.market.endsWith("c2"))!; // Northport levy market
   assert.ok(it, "northport candidate");
-  approve(s, it.id);
+  await approve(s, it.id);
   const raw = new EvidenceClient({ baseUrl: mock.apiUrl, apiKey: MOCK_KEY });
   if (!mock.terms.acceptedAt) await raw.acceptTerms(mock.terms.version);
   await raw.submitEvidence({ note: `As of ${it.fact.date}: ${it.fact.text}\n(sent from another machine)`, links: it.links, marketAddress: it.market });

@@ -3,7 +3,7 @@
 // content type, enough server-rendered text, no paywall/JS wall, and (when given) the key text.
 import type { PreflightResult } from "./types.ts";
 import { plainFetch } from "./fetcher.ts";
-import { decodeEntities, hostOf, htmlToText, tokens } from "./text.ts";
+import { decodeEntities, extractFigures, hostOf, htmlToText, tokens } from "./text.ts";
 
 /** Hosts the judge is known to fail on (login walls / JS apps). Checked without fetching. */
 export const BLOCKED_HOSTS = ["x.com", "twitter.com", "mobile.twitter.com", "reddit.com", "old.reddit.com", "t.me", "facebook.com", "instagram.com", "linkedin.com", "tiktok.com", "discord.com", "discord.gg", "threads.net"];
@@ -19,15 +19,23 @@ export function isBlockedHost(url: string): boolean {
   return BLOCKED_HOSTS.some((b) => h === b || h.endsWith(`.${b}`));
 }
 
-/** True when the key text appears verbatim (normalized) or >=70% of its content tokens are on the page. */
+/**
+ * True when the key text appears verbatim (normalized) or >=70% of its content tokens are on the page,
+ * AND every numeric figure in the key text also appears on the page (so "3.2%" cannot match a page that only has "4.8%").
+ */
 export function keyTextOnPage(pageText: string, key: string): boolean {
+  const keyFigs = extractFigures(key);
+  if (keyFigs.length) {
+    const pageFigs = new Set(extractFigures(pageText));
+    if (keyFigs.some((f) => !pageFigs.has(f))) return false;
+  }
   const norm = (s: string) => tokens(s).join(" ");
   const p = norm(pageText), k = norm(key);
   if (!k) return false;
   if (p.includes(k)) return true;
   const kt = [...new Set(tokens(key))];
   const pt = new Set(tokens(pageText));
-  return kt.filter((t) => pt.has(t)).length / kt.length >= 0.7;
+  return kt.filter((tok) => pt.has(tok)).length / kt.length >= 0.7;
 }
 
 export async function preflight(url: string, keyText?: string, opts: { fetch?: typeof fetch; timeoutMs?: number; now?: number } = {}): Promise<PreflightResult> {

@@ -5,6 +5,7 @@
 // the note, each link and each file count as 1.
 import fs from "node:fs";
 import path from "node:path";
+import { PDFDocument } from "pdf-lib";
 import type { QueueItem, Side, State, SubmissionRecord } from "./types.ts";
 
 export const MAX_PER_MARKET = 3;
@@ -31,27 +32,31 @@ export function itemsCheck(note: string | null | undefined, links: readonly stri
   return { ok: true, count };
 }
 
-/** Count /Type /Page (not /Pages) in a PDF; undefined if it does not look like a PDF. */
-export function pdfPageCount(file: string): number | undefined {
+/**
+ * Count pages with pdf-lib (handles object streams / compressed xref that a /Type /Page regex misses).
+ * Returns undefined when the file is not a readable PDF so the check is skipped rather than guessed.
+ */
+export async function pdfPageCount(file: string): Promise<number | undefined> {
   if (path.extname(file).toLowerCase() !== ".pdf") return undefined;
   try {
     const buf = fs.readFileSync(file);
     if (!buf.subarray(0, 5).toString("latin1").startsWith("%PDF-")) return undefined;
-    const n = (buf.toString("latin1").match(/\/Type\s*\/Page(?!s)/g) || []).length;
-    return n || undefined;
+    const doc = await PDFDocument.load(buf, { ignoreEncryption: true, updateMetadata: false, throwOnInvalidObject: false });
+    const n = doc.getPageCount();
+    return n > 0 ? n : undefined;
   } catch {
     return undefined;
   }
 }
 
-export function filesCheck(files: readonly string[]): { ok: boolean; reason?: string } {
+export async function filesCheck(files: readonly string[]): Promise<{ ok: boolean; reason?: string }> {
   let bytes = 0;
   for (const f of files) {
     if (!fs.existsSync(f)) return { ok: false, reason: `file missing ${f}` };
     const st = fs.statSync(f);
     if (!st.isFile() || st.size === 0) return { ok: false, reason: `file ${f} is empty or not a regular file` };
     bytes += st.size;
-    const pages = pdfPageCount(f);
+    const pages = await pdfPageCount(f);
     if (pages !== undefined && pages > MAX_PDF_PAGES) {
       return { ok: false, reason: `${path.basename(f)} has ${pages} PDF pages (max ${MAX_PDF_PAGES})` };
     }
@@ -145,12 +150,25 @@ export interface SideCheck {
   reason?: string;
 }
 
-/** Part 6: never send evidence for both sides of one market (it cancels out). */
+/**
+ * Whether `side` conflicts with a market already argued the other way.
+ * A missing side is allowed (the reviewer can set it later). Used by queueing and set-side.
+ */
+export function sideCompatible(state: State, market: string, side: Side | null | undefined): SideCheck {
+  const locked = lockedSide(state, market);
+  if (locked && side && locked !== side) {
+    return { ok: false, locked, reason: `argues ${side}, market locked to ${locked}` };
+  }
+  return { ok: true, locked };
+}
+
+/** Part 6: never send evidence for both sides of one market (it cancels out). Requires a side. */
 export function sideCheck(state: State, market: string, side: Side | null): SideCheck {
   const locked = lockedSide(state, market);
   if (!side) return { ok: false, locked, reason: "no side set (use set-side)" };
-  if (locked && locked !== side) return { ok: false, locked, reason: `market is locked to ${locked}; this item argues ${side}` };
-  return { ok: true, locked };
+  const c = sideCompatible(state, market, side);
+  if (!c.ok) return { ok: false, locked: c.locked, reason: `market is locked to ${c.locked}; this item argues ${side}` };
+  return c;
 }
 
 export function lockSide(state: State, market: string, side: Side): void {

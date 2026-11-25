@@ -11,12 +11,12 @@ import { plainFetch } from "./fetcher.ts";
 import { extractFacts } from "./extract.ts";
 import { checkNovelty, fingerprint } from "./novelty.ts";
 import { inferSide } from "./side.ts";
-import { lockedSide } from "./rules.ts";
+import { sideCompatible } from "./rules.ts";
 import { isBlockedHost, preflight } from "./preflight.ts";
 import { buildEvidence, defaultCapturer, redraftItem, type Capturer } from "./capture.ts";
 import { hardHostList } from "./hardsource.ts";
 import { logEvent } from "./feedbacklog.ts";
-import { domainWeight } from "./learn.ts";
+import { domainWeight, isAvoidedSource } from "./learn.ts";
 import { hostOf, sha256, uuidFromSeed } from "./text.ts";
 
 export async function loadMarkets(cfg: Config, fetchImpl: typeof fetch = fetch): Promise<MarketCard[]> {
@@ -75,7 +75,7 @@ export async function scan(state: State, cfg: Config, opts: { fetch?: typeof fet
     if (budget <= 0) { rep.skipped.push({ market: m.address, why: "enough pending items already" }); continue; }
     const facts = [];
     for (const s of plan.sources) {
-      if (state.lessons.avoidDomains.includes(hostOf(s.url))) { rep.skipped.push({ market: m.address, why: `avoided domain ${hostOf(s.url)}` }); continue; }
+      if (isAvoidedSource(state, s.url, m.dataSources)) { rep.skipped.push({ market: m.address, why: `avoided domain ${hostOf(s.url)}` }); continue; }
       if (isBlockedHost(s.url)) {
         rep.skipped.push({ market: m.address, why: `source ${s.url} needs a browser/login: read it yourself, then queue it with add-manual (pasted key text + dated screenshot)` });
         logEvent(cfg.dataDir, { kind: "unreadable_source", detail: "login/JS-walled host: not readable by a plain fetch, skipped", url: s.url, market: m.address });
@@ -95,13 +95,13 @@ export async function scan(state: State, cfg: Config, opts: { fetch?: typeof fet
       facts.push(...ex.facts);
     }
     facts.sort((a, b) => b.relevance * domainWeight(state, b.source) - a.relevance * domainWeight(state, a.source) || b.date.localeCompare(a.date));
-    const locked = lockedSide(state, m.address);
     for (const fact of facts) {
       if (budget <= 0) break;
       const nv = checkNovelty(state, m.address, fact.text);
       if (!nv.novel) { rep.skipped.push({ market: m.address, why: `not novel (${nv.duplicateOf}): ${fact.text.slice(0, 60)}` }); continue; }
       const sideCall = inferSide(m.question, fact.text);
-      if (locked && sideCall.side && sideCall.side !== locked) { rep.skipped.push({ market: m.address, why: `argues ${sideCall.side}, market locked to ${locked}: ${fact.text.slice(0, 60)}` }); continue; }
+      const sc = sideCompatible(state, m.address, sideCall.side);
+      if (!sc.ok) { rep.skipped.push({ market: m.address, why: `${sc.reason}: ${fact.text.slice(0, 60)}` }); continue; }
       const fp = fingerprint(fact.text);
       const id = sha256(`${m.address.toLowerCase()}|${fp}`).slice(0, 10);
       // Seen before (e.g. rejected by the reviewer): skip before any fetch or capture write.

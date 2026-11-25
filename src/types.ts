@@ -112,6 +112,8 @@ export interface DomainStat {
   accepted: number;
   rejected: number;
   tags: Record<string, number>;
+  /** ISO time of the latest unverifiable/irrelevant verdict used for avoidDomains decay. */
+  lastPenaltyAt?: string;
 }
 
 export interface Lessons {

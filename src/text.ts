@@ -116,3 +116,39 @@ export function hostOf(u: string): string {
 
 export const isUrl = (s: string) => /^https?:\/\//i.test(s.trim());
 export const todayUtc = (now = Date.now()) => new Date(now).toISOString().slice(0, 10);
+
+
+/** Turn "October 2026" / "Oct. 2026" into "2026-10" so month-year is a stable identity token. */
+export function normalizeMonthYears(s: string): string {
+  const mon = new RegExp("\\b" + MON + "\\.?\\s+(\\d{4})\\b", "gi");
+  return s.replace(mon, (all, m, y) => {
+    const n = MONTHS[String(m).toLowerCase()];
+    return n ? `${y}-${String(n).padStart(2, "0")}` : all;
+  });
+}
+
+/** Comma-grouped figures become plain digits ("165,000" -> "165000") so comparisons are stable. */
+export function normalizeFigures(s: string): string {
+  return s.replace(/[+-]?\d{1,3}(?:,\d{3})+(?:\.\d+)?/g, (m) => m.replace(/,/g, ""));
+}
+
+/**
+ * Canonical numeric figures in `s`, after dates are normalized to ISO and skipped so
+ * "Nov 13, 2026" and "2026-11-13" do not yield bare 11/13/2026 parts.
+ * Values are decimal-normalized ("3.20" -> "3.2").
+ */
+export function extractFigures(s: string): string[] {
+  const t = normalizeFigures(normalizeMonthYears(normalizeDates(s)));
+  const skip: [number, number][] = [];
+  for (const m of t.matchAll(/\b\d{4}-\d{2}(?:-\d{2})?\b/g)) skip.push([m.index!, m.index! + m[0].length]);
+  const out: string[] = [];
+  const re = /[+-]?\d+(?:\.\d+)?%?/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(t))) {
+    if (skip.some(([a, b]) => m!.index >= a && m!.index < b)) continue;
+    const core = m[0].replace(/^\+/, "").replace(/%$/, "");
+    const n = Number(core);
+    if (Number.isFinite(n)) out.push(String(n));
+  }
+  return out;
+}
