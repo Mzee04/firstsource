@@ -1,8 +1,7 @@
 // Feedback-bounty prep (local only). Every judge rationale and every agent failure (fetch failure,
 // unreadable source, API / network error, failed screenshot) is appended to data/feedback-log.jsonl.
 // `feedback draft` turns that log into concise, deduplicated notes in a markdown file for a human to
-// review. NOTHING here sends feedback anywhere: SDK 2.4.0 has no feedback endpoint, so the human
-// sends the reviewed notes through the official form.
+// review. NOTHING here sends feedback: posting to https://feedback.delphi.fyi is a separate, gated command.
 import fs from "node:fs";
 import path from "node:path";
 import type { FeedbackEntry, State } from "./types.ts";

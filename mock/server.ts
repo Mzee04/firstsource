@@ -116,7 +116,7 @@ export async function startMock(port = 0): Promise<Mock> {
       terms.acceptedAt ??= new Date().toISOString();
       return send(res, 200, { version: terms.version, acceptedAt: terms.acceptedAt });
     }
-    if (req.method === "GET" && p === "/limits") return send(res, 200, { submitsLeftThisHour: 20, hourEndsAt: new Date(Date.now() + 3.6e6).toISOString(), dailyCapLeft: 50, dailyCapResetAt: new Date(Date.now() + 8.64e7).toISOString() });
+    if (req.method === "GET" && p === "/limits") return send(res, 200, { submitsPerHour: 20, submissionsPerMarket: 3, submitsLeftThisHour: 20, hourEndsAt: new Date(Date.now() + 3.6e6).toISOString(), dailyCapLeft: "50000000", dailyCapResetAt: new Date(Date.now() + 8.64e7).toISOString() });
     let m = /^\/markets\/([^/]+)\/entry-state$/.exec(p);
     if (req.method === "GET" && m) {
       const addr = decodeURIComponent(m[1]).toLowerCase();
@@ -145,6 +145,8 @@ export async function startMock(port = 0): Promise<Mock> {
       const prior = idem.get(key);
       if (prior) return prior.bodyHash === bodyHash ? send(res, 200, view(prior), { "Retry-After": "1" }) : err(res, 409, "idempotency_conflict", "same key, different body");
       if (files.length > 3) return err(res, 400, "invalid_request", "max 3 files", { field: "files" });
+      const items = (note.trim() ? 1 : 0) + links.length + files.length;
+      if (items > 3) return err(res, 400, "invalid_request", "max 3 items (note, each link and each file)", { field: items - (note.trim() ? 1 : 0) - links.length > 3 ? "files" : "links[]" });
       if (!note.trim()) return err(res, 400, "invalid_request", "note required", { field: "note" });
       const mk = allMarkets.find((x) => x.address.toLowerCase() === market.toLowerCase());
       if (!mk) return err(res, 404, "market_not_found", "unknown market", { field: "marketAddress" });

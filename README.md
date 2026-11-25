@@ -4,10 +4,9 @@ FirstSource is an evidence-mining agent for the **Delphi Agent Arena: Evidence M
 
 It finds **dated facts from each market's own settlement sources** before they spread elsewhere. It checks that the judge can actually read each link, and it puts every draft in front of a human before anything is sent.
 
-It is built on `@gensyn-ai/gensyn-delphi-sdk@2.4.0` (`EvidenceClient`). The API calls follow the SDK's code in `dist/client/evidence.js` and the official `examples/evidence-starter`.
+It is built on `@gensyn-ai/gensyn-delphi-sdk@2.4.1` (`EvidenceClient`). Official docs, from the [Delphi Competition Site](https://competition.delphi.fyi/participate): [skill.md](https://competition.delphi.fyi/skill.md), [markets.json](https://competition.delphi.fyi/markets.json), the [Evidence API reference](https://docs.delphi.fyi/tools/sdk/evidence), [OpenAPI](https://delphi.fyi/v1/openapi.json), [Delphi skills](https://github.com/gensyn-ai/gensyn-delphi-skills) (`reference/competition.md`, `reference/evidence-api.md`, `reference/evidence.md`, `reference/feedback.md`), and [feedback](https://feedback.delphi.fyi).
 
-> Status: built and tested locally against a mock of the API only. The real API, key, `/markets.json`
-> and agent guide are released when submissions open on **25 Nov 2026, 17:00 UTC**. See "Untested until the real API" below.
+> Status: v0.3 is aligned with the official docs published when the competition opened on **25 Nov 2026, 17:00 UTC**. Live submit still needs your approval. The human-approval gate is unchanged.
 
 ## What changed on 22 Nov 2026 (v0.2)
 1. **Hard-to-fetch sources need pasted text and a dated screenshot.** X/Twitter, Reddit, other login-walled sites, common paywalled news sites, and any page where preflight finds a paywall, login wall or bot check all count as hard to fetch. You can add hosts with `hardToFetch` in `config/sources.json` or with `FIRSTSOURCE_HARD_HOSTS`. Evidence from these sources:
@@ -24,15 +23,15 @@ It is built on `@gensyn-ai/gensyn-delphi-sdk@2.4.0` (`EvidenceClient`). The API 
 4. **Feedback-bounty prep (local only).**
    - **The log:** judge verdict rationales and agent failures go to `data/feedback-log.jsonl`. Failures include fetch failures, unreadable sources, API and network errors, retries and failed screenshots. Anything that looks like a credential is redacted.
    - **The draft:** `feedback draft` writes concise, deduplicated notes to `data/feedback-draft.md` for you to review.
-   - **Nothing is sent.** SDK 2.4.0 has no feedback endpoint, so send the reviewed notes yourself through the official form.
+   - **Nothing is sent unless you opt in.** `feedback draft` writes a local file. `feedback send` posts to https://feedback.delphi.fyi only with `FIRSTSOURCE_SEND_FEEDBACK=1` and `DELPHI_WALLET_ADDRESS`.
 5. **Curated sources.** `config/sources.json` now lists 67 verified public primary sources and official calendars across macro, crypto, tech, sports and politics, with global coverage. See "Sources" below.
 6. **RSS/Atom feeds** are parsed item by item. A fact cites the **item's link** and date, never the feed URL. Preflight used to wrongly refuse `application/rss+xml`, and that is fixed.
-7. **Agent headers.** `X-Agent-Id`, `X-Agent-Harness` and `X-Agent-Model` are sent on every call. The harness is now configurable with `AGENT_HARNESS` (default `firstsource/0.2 (node; @gensyn-ai/gensyn-delphi-sdk 2.4.0)`), and the mock test checks that all three arrive.
+7. **Agent headers.** `X-Agent-Id`, `X-Agent-Harness` and `X-Agent-Model` are sent on every call. The harness is now configurable with `AGENT_HARNESS` (default `firstsource/0.3 (node; gensyn-delphi-sdk 2.4.1)`), and the mock test checks that all three arrive.
 
 ### New commands
 ```bash
 npm run fs -- add-manual <market> <url> --date YYYY-MM-DD --text "key text quoted from the page" [--side YES|NO] [--screenshot shot.png] [--question "..."] [--cutoff ISO]
-npm run fs -- detach <id> <file|n>          # free a slot (max 3 files) before attaching a screenshot
+npm run fs -- detach <id> <file|n>          # free a slot (max 3 items: note + each link + each file) before attaching a screenshot
 npm run fs -- feedback draft [--out f.md]   # deduplicated notes from data/feedback-log.jsonl; never sent
 ```
 `attach` now redrafts the note and tells you whether a required screenshot is still missing. `config` shows which browser, if any, will take screenshots.
@@ -44,7 +43,7 @@ npm run fs -- feedback draft [--out f.md]   # deduplicated notes from data/feedb
 - **The key is never printed.** `config` shows only `(set)` or `(unset)`.
 - **Every submit is idempotent.** The `Idempotency-Key` is derived from the item id and stored when the item is queued. Retries after a timeout or network error check `GET /submissions` first, then resend with the same key, so they can't create a second submission.
 - **Hard-to-fetch evidence needs a screenshot.** Items from X, Reddit, paywalls and login walls can't be approved or submitted without a PNG/JPG screenshot showing the URL and date.
-- **Fresh account check before every live send.** The live path pulls this account's submissions on that market (`listSubmissions({ market })`, as the SDK 2.4.0 README advises). A send that already landed on an earlier attempt (for example a timeout after the server saved it) is matched by note and marked submitted. Nothing is re-sent, and the same fact sent from another run or machine is blocked as a duplicate.
+- **Fresh account check before every live send.** The live path pulls this account's submissions on that market (`listSubmissions({ market })`, as the official Evidence API docs advise). A send that already landed on an earlier attempt (for example a timeout after the server saved it) is matched by note and marked submitted. Nothing is re-sent, and the same fact sent from another run or machine is blocked as a duplicate.
 - **The evidence cutoff is the deadline.** The FAQ says the cutoff is the submission deadline, so `approve` and `submit` refuse once a market's cutoff has passed.
 - **One run at a time.** Commands that touch `data/state.json` take a lock file (`data/.lock`), so two runs can't overwrite each other's changes. A lock left by a crashed run is reclaimed. Each save also keeps the previous copy as `state.json.bak`.
 - **Every API call has a 60 s timeout.** The SDK sets none. A timed-out submit is safe to retry because the key is the same.
@@ -59,7 +58,7 @@ npm run fs -- feedback draft [--out f.md]   # deduplicated notes from data/feedb
 | 4 | Dated-fact extraction. It keeps sentences that are relevant, contain a figure or an outcome word, and carry a date. It drops undated sentences and anything after the cutoff. | `src/extract.ts` |
 | 5 | Novelty filter. It compares fingerprints (with dates normalised to ISO) and near-duplicates against queued items, local submissions, and `listSubmissions` notes. | `src/novelty.ts` |
 | 6 | One side per market. The first approval locks the market's side, and evidence for the opposite side is blocked. | `src/rules.ts`, `src/side.ts` |
-| 7 | Judge-fetch preflight. It does a plain GET with no JavaScript. X, Reddit and other login-walled sites are refused without fetching. It checks paywall text, JS-only pages, the content type, and whether the key text is on the page. If the link fails, it falls back to pasted key text plus a dated PDF capture (at most 3 files). | `src/preflight.ts`, `src/pdf.ts` |
+| 7 | Judge-fetch preflight. It does a plain GET with no JavaScript. X, Reddit and other login-walled sites are refused without fetching. It checks paywall text, JS-only pages, the content type, and whether the key text is on the page. If the link fails, it falls back to pasted key text plus a dated screenshot or (when that is not a hard source) a text-PDF, staying within the 3-item cap. | `src/preflight.ts`, `src/pdf.ts` |
 | 8 | Note drafter. Each note gives `As of YYYY-MM-DD: fact`, the source, the pasted key text when needed, and which side it points to. Length is capped. | `src/drafter.ts` |
 | 9 | Human approval queue: `list`, `show`, `set-side`, `attach`, `approve`, `reject`. | `src/queue.ts`, `src/cli.ts` |
 | 10 | Idempotent submit (dry run or live), plus `sync` (`listSubmissions`). | `src/submit.ts` |
@@ -77,17 +76,19 @@ npm test            # unit + end-to-end tests against the local mock
 ### Environment (variable names only; never commit values)
 | Var | Use |
 |---|---|
-| `COMPETITION_SITE_URL` | The competition site. The agent reads `/markets.json` from it. |
-| `DELPHI_API_URL` | The evidence API base URL, including `/v1`. |
-| `DELPHI_API_ACCESS_KEY` | The API key. `DELPHI_API_KEY` is used as a fallback. |
-| `AGENT_ID`, `AGENT_MODEL` | Sent as `X-Agent-Id` and `X-Agent-Model` (1 to 64 printable ASCII characters). The defaults are `firstsource` and `rule-based (no LLM)`. The contest asks agents to send their ID, harness and model. |
+| `COMPETITION_SITE_URL` | The competition site. The agent reads `/markets.json` from it. Default: `https://competition.delphi.fyi`. |
+| `DELPHI_API_URL` | The evidence API base URL, including `/v1`. Default: `https://delphi.fyi/v1`. |
+| `DELPHI_API_ACCESS_KEY` | The API key (required for any authenticated call). `DELPHI_API_KEY` is used as a fallback. Auth is `Authorization: Bearer <key>`. |
+| `AGENT_ID`, `AGENT_MODEL`, `AGENT_HARNESS` | Sent as `X-Agent-Id`, `X-Agent-Model` and `X-Agent-Harness` (1 to 64 printable ASCII). Official aliases: `DELPHI_AGENT_ID`, `DELPHI_AGENT_MODEL`, `DELPHI_AGENT_HARNESS`. Defaults: `firstsource`, `rule-based (no LLM)`, and `firstsource/0.3 (node; gensyn-delphi-sdk 2.4.1)`. |
 | `FIRSTSOURCE_LIVE` | Must be `1` for any real submit. |
 | `FIRSTSOURCE_ACCEPT_TERMS` | Must equal the current terms version for `accept-terms` to run. This step is for a human only. |
 | `FIRSTSOURCE_SOURCES` | The sources config. Default: `config/sources.json`. |
 | `FIRSTSOURCE_DATA_DIR` | The state directory. Default: `./data`. |
 | `FIRSTSOURCE_MARKETS_FILE` | Reads `markets.json` from a local file instead of the site. |
-| `FIRSTSOURCE_NOTE_MAX` | The note length cap, an integer from 200 to 20000. Default: 1200. |
-| `AGENT_HARNESS` | Sent as `X-Agent-Harness`, 1 to 64 printable ASCII characters. Default: `firstsource/0.2 (node; @gensyn-ai/gensyn-delphi-sdk 2.4.0)`. |
+| `FIRSTSOURCE_NOTE_MAX` | The note length cap, an integer from 200 to 8000 (the official maximum). Default: 1200. |
+| `DELPHI_WALLET_ADDRESS` | Wallet the API key was created with. Required only to send feedback. |
+| `DELPHI_FEEDBACK_URL` | Feedback API base. Default: `https://feedback.delphi.fyi`. |
+| `FIRSTSOURCE_SEND_FEEDBACK` | Must be `1` to POST feedback. Drafts never send. |
 | `FIRSTSOURCE_HARD_HOSTS` | Extra hard-to-fetch hosts, comma separated. They are added to the built-ins and to `hardToFetch` in the sources config. |
 | `FIRSTSOURCE_SCREENSHOT` | `auto` (the default) captures with headless Chrome/Chromium when one is found. `off` means you attach screenshots yourself. |
 | `FIRSTSOURCE_CHROME` | Path to the Chrome/Chromium binary to use for screenshots. |
@@ -115,7 +116,7 @@ npm run fs -- status
 2. **Read the agent guide**, then compare it with the "Assumptions" section below. Mainly check the `/markets.json` fields, the verdict values, the note length limit, the file types allowed, and whether X links are acceptable.
 3. **Set the env in your own terminal.** Paste the key yourself so it never appears on screen, in history, or in chat:
    ```bash
-   export COMPETITION_SITE_URL='<from guide>' DELPHI_API_URL='<from guide, ends in /v1>'
+   # Defaults already point at the official site and https://delphi.fyi/v1
    read -rs DELPHI_API_ACCESS_KEY && export DELPHI_API_ACCESS_KEY
    npm run fs -- config            # apiKey must show "(set)"
    ```
@@ -125,11 +126,11 @@ npm run fs -- status
 6. **Draft:** run `npm run fs -- scan --verbose`, then `npm run fs -- list pending`, then `npm run fs -- show <id>` for each item.
    - Fix the side if needed: `set-side <id> YES|NO`.
    - For an X post, Reddit thread or paywalled article you read yourself, run `add-manual <market> <url> --date … --text "…"`. Add `--screenshot shot.png` if no browser is available.
-   - Add a real dated screenshot when a link is in fallback mode: `attach <id> shot.png`. Items marked "screenshot required" can't be approved without one. `approve` prints a warning when a fallback item has no screenshot. Accepted file types are `.pdf`, `.png`, `.jpg`/`.jpeg`, `.csv` and `.txt`, the types the FAQ lists. Item ids can be shortened to a unique prefix of at least 4 characters.
+   - Add a real dated screenshot when a link is in fallback mode: `attach <id> shot.png`. Items marked "screenshot required" can't be approved without one. `approve` prints a warning when a fallback item has no screenshot. Each submission holds at most 3 items in total (the note, each link and each file count as 1). Accepted file types are PNG, JPEG, WebP, PDF, TXT, DOC, DOCX and CSV, at most 10 MB in total and 20 pages per PDF. Item ids can be shortened to a unique prefix of at least 4 characters.
    - Then `approve <id>` or `reject <id> <reason>`.
 7. **Dry run:** run `npm run fs -- submit --all-approved` and check the JSON files in `data/dryruns/`.
 8. **Live, one item at a time, only with the owner's go:** `FIRSTSOURCE_LIVE=1 npm run fs -- submit <id> --live`
-9. **After judging:** run `npm run fs -- sync`, then `npm run fs -- status` (qualification and slots), then `npm run fs -- lessons`. `sync` also logs the judge's rationales. Run `npm run fs -- feedback draft` and read `data/feedback-draft.md` before sending anything through the official feedback form.
+9. **After judging:** run `npm run fs -- sync`, then `npm run fs -- status` (qualification and slots), then `npm run fs -- lessons`. `sync` also logs the judge's rationales. Run `npm run fs -- feedback draft` and read `data/feedback-draft.md`. Sending to https://feedback.delphi.fyi is optional and needs `FIRSTSOURCE_SEND_FEEDBACK=1` plus `DELPHI_WALLET_ADDRESS`.
 10. **Keep going:** markets are added every few days. Re-run `scan` after each watched release date (`status` lists them). The goal is at least 10 judged submissions across at least 3 markets before **11 Dec 2026, 17:00 UTC**.
 
 Commands that only read from the API: `terms`, `limits`, `entry <market>`, `sync`.
@@ -148,7 +149,7 @@ Commands that only read from the API: `terms`, `limits`, `entry <market>`, `sync
 `test/improvements.test.ts` (22 Nov) covers:
 - hard hosts and screenshot rules
 - `add-manual` refusing without a screenshot, then accepting a user screenshot or an automatic capture
-- the 3-file cap and `detach`
+- the 3-item cap (note + links + files) and `detach`
 - paywalled scan items blocked until they have a screenshot
 - the same-key retry against the mock with injected faults: the connection drops after landing, the client times out after landing, the connection drops before landing, the list lags so a resend gets the same submission back, and an attempt that gives up then succeeds in a later run with the same key
 - the feedback log, redaction, and deduplicated draft, plus the CLI writing the draft with no API
@@ -160,19 +161,21 @@ Commands that only read from the API: `terms`, `limits`, `entry <market>`, `sync
 
 The end-to-end test runs the whole pipeline: scan, novelty on rescan, approval, a dry run (asserting zero `POST /submissions`), live refused without the env flag, live refused before terms acceptance, mock-only terms acceptance, live submit and judging, an idempotent re-POST that returns the same submission, `sync`, the tracker, and refusal when the server says the market is full.
 
-## Untested until the real API, and assumptions
-- **The real endpoint, auth and contract.** The mock follows the SDK's paths, multipart fields (`note`, `links[]`, `files`, `marketAddress`), `termsVersion` and error envelope, but the server's behaviour is unknown.
-- **The `/markets.json` shape.** We read only the starter's fields (`address`, `question`, `status`, `odds`, `evidenceCutoffAt`, `dataSources`). The status is assumed to be `"open"`, and odds are read as a fraction or a percent.
-- **Verdict vocabulary.** The values of `SubmissionMarket.verdict` aren't published. Accepted versus rejected is a first estimate from keywords and the bounty. Every `judged` submission counts toward qualification no matter what the verdict was.
-- **How the judge reads pages.** Preflight copies "basic fetch, no JS" as described, but the judge's real user agent, timeouts and PDF handling aren't known.
-- **Note length, file size and per-file limits** beyond "3 files" aren't known. The FAQ lists "pdf, png, jpg, csv, text etc." as file types. The note cap defaults to 1200 characters.
+## Official rules now encoded, and remaining assumptions
+- **Endpoint and auth.** Evidence API base is `https://delphi.fyi/v1`. Auth is `Authorization: Bearer` with `DELPHI_API_ACCESS_KEY` (`X-API-Key` also works). Agent headers are `X-Agent-Id`, `X-Agent-Harness`, `X-Agent-Model`. The market list is `https://competition.delphi.fyi/markets.json`.
+- **`/markets.json` shape.** We read `address`, `question`, `status`, `odds`, `evidenceCutoffAt`, `dataSources` (plus any extra keys). Official status is `"open"`; odds are fractions. Evidence cutoff is the submission deadline, usually 24 hours before close; we use the field, not our own arithmetic.
+- **Verdict vocabulary.** Official values: accepted, duplicate, unverifiable, irrelevant, no information, manipulation. Qualification counts judged submissions whose verdict is not `manipulation`. A judged `duplicate` gives its per-market slot back (up to 10 times per account in 24 hours).
+- **How the judge reads pages.** Preflight copies "basic fetch, no JS". For X, Reddit, paywalls and login walls, the note quotes the key text and a dated screenshot (URL + date) is required. The official cap of 3 items means those packages are note + link + screenshot (no extra text-PDF).
+- **Item, note and file limits.** At most 3 items per submission (note + each link + each file). Note at most 8,000 characters (we default to 1,200). Files: PNG, JPEG, WebP, PDF, TXT, DOC, DOCX, CSV; 10 MB in total; 20 pages per PDF.
 - **PDF sources** pass preflight on status and type, but facts are **not** extracted from PDFs. Paste those by hand.
 - **Screenshots** are real PNGs when a headless Chrome/Chromium works on the machine. X usually blocks headless browsers, and other sites may too. Check every screenshot before you approve, and replace it with your own if it shows a login wall.
 - **Side calls are heuristics.** Threshold questions compare figures, and event questions use outcome words. Low-confidence or unclear calls need a human, and the human approves every item anyway.
 - **`listSubmissions` only shows our own account.** Other entrants' duplicates can't be seen in advance.
 - **The curated sources are general.** The 67 entries in `config/sources.json` were checked on 22 Nov 2026, but they aren't any market's declared settlement source. The market's own `dataSources` always come first, so add each market's verified pages on day one.
-- **Feedback endpoint.** SDK 2.4.0 has no feedback method, so `feedback draft` only writes a local file. If the agent guide later documents an endpoint, sending stays a human decision.
-- **Rate limits and `getLimits`** have only been tested against the mock.
+- **Feedback endpoint.** `POST https://feedback.delphi.fyi/v1/feedback` with `x-api-key`. `feedback draft` still only writes a local file. `feedback send` is refused unless `FIRSTSOURCE_SEND_FEEDBACK=1` and `DELPHI_WALLET_ADDRESS` are set.
+- **Limits.** Live submit calls `GET /v1/limits` before sending, and `getEntryState` for the market. The hourly limit is the UTC clock hour. Restricted tier is 1 submission per market; we take the server's `submissionsPerMarket` / `remainingOnMarket` as the final word.
+- **Human approval.** `approve` plus `FIRSTSOURCE_LIVE=1` plus `--live` are still all required to submit. FirstSource never accepts terms or sends feedback on its own.
+- **Trading API.** The official Mainnet trading API is `https://api.delphi.fyi`. FirstSource does not trade.
 
 ## Sources (`config/sources.json`, checked 22 Nov 2026)
 - **`official`** entries (kind `primary`) are fetched when their `match` regex hits the market question.
@@ -183,7 +186,7 @@ The end-to-end test runs the whole pipeline: scan, novelty on rescan, approval, 
 **How they were checked:**
 - Every URL was fetched with `curl`, and again with FirstSource's own plain fetch and preflight, which is the judge's view. All 67 returned HTTP 200 with readable server-rendered text.
 - BLS, RBA, IMF and SEC EDGAR returned 403 to a browser-like user agent but 200 to FirstSource's plain user agent.
-- SEC asks automated clients to send a descriptive user agent. FirstSource sends `FirstSource/0.2 (...)`.
+- SEC asks automated clients to send a descriptive user agent. FirstSource sends `FirstSource/0.3 (...)`.
 
 | Topic | Type | Label | URL |
 |---|---|---|---|

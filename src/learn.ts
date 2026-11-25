@@ -1,7 +1,8 @@
 // Part 11: learn from verdict rationales. Tags each judged reason, keeps per-domain accept/reject
 // counts, and derives two policies the scanner applies: force the pasted-text fallback for domains
 // the judge could not read, and skip domains that only ever got rejected.
-// ASSUMPTION: the verdict vocabulary is not published yet; we classify by keywords and bounty.
+// Official verdicts (evidence-api.md): accepted, duplicate, unverifiable, irrelevant,
+// no information, manipulation. Keyword fallback kept for older/odd values.
 import type { Lessons, State, SubmissionRecord } from "./types.ts";
 import { hostOf } from "./text.ts";
 
@@ -24,8 +25,10 @@ export function tagReason(reason: string | null): string[] {
 export function outcomeOf(s: SubmissionRecord): "accepted" | "rejected" | "unknown" {
   if (s.status === "rejected" || s.status === "failed" || s.status === "unmatched") return "rejected";
   if (s.status !== "judged") return "unknown";
-  const v = (s.verdict ?? "").toLowerCase();
-  if (/reject|invalid|duplicate|irrelevant|fail|no_?value|deny|denied/.test(v)) return "rejected";
+  const v = (s.verdict ?? "").trim().toLowerCase().replace(/[_-]+/g, " ");
+  if (v === "accepted") return "accepted";
+  if (["duplicate", "unverifiable", "irrelevant", "no information", "manipulation"].includes(v)) return "rejected";
+  if (/reject|invalid|duplicate|irrelevant|fail|no_?value|deny|denied|unverifiable|manipulation/.test(v)) return "rejected";
   if (/accept|valid|approved|useful|pass|credited|counted/.test(v)) return "accepted";
   if (s.bounty && Number(s.bounty.amount) > 0) return "accepted";
   return "unknown";

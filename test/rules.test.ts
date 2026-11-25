@@ -5,7 +5,7 @@ import path from "node:path";
 import assert from "node:assert/strict";
 import { item, state, sub } from "./helpers.ts";
 import { checkNovelty, fingerprint, nearDuplicate } from "../src/novelty.ts";
-import { capCheck, lockedSide, sideCheck, usedSlots } from "../src/rules.ts";
+import { capCheck, countsTowardMarketCap, countsTowardQualification, itemCount, itemsCheck, lockedSide, sideCheck, usedSlots } from "../src/rules.ts";
 import { approve, attach, reject, setSide } from "../src/queue.ts";
 import { qualification, addFeedback, feedbackMarkdown } from "../src/tracker.ts";
 import { learn, outcomeOf, tagReason } from "../src/learn.ts";
@@ -151,4 +151,37 @@ test("learn: tags reasons and derives fallback/avoid policies", () => {
   assert.deepEqual(s.lessons.forceFallbackDomains, ["paywalled.example"]);
   assert.deepEqual(s.lessons.avoidDomains, ["blog.example"]);
   assert.equal(learn(s).newlyLearned, 0, "idempotent");
+});
+
+// ---- official 25 Nov 2026 rules ----
+test("items: note + each link + each file count as 1, cap 3", () => {
+  assert.equal(itemCount("a note", ["https://a"], ["shot.png"]), 3);
+  assert.equal(itemsCheck("a note", ["https://a"], ["shot.png"]).ok, true);
+  assert.equal(itemsCheck("a note", ["https://a", "https://b"], ["shot.png"]).ok, false);
+  assert.match(itemsCheck("a note", ["https://a"], ["a.png", "b.pdf"]).reason!, /max 3 items/);
+  assert.equal(itemCount("   ", [], []), 0);
+});
+
+test("cap: a judged duplicate verdict gives its slot back; a rejected duplicate still counts", () => {
+  const s = state();
+  s.submissions.push(
+    sub(M1, "judged", { verdict: "accepted" }),
+    sub(M1, "judged", { verdict: "duplicate" }),
+    sub(M1, "rejected", { verdict: "duplicate" }),
+  );
+  assert.equal(countsTowardMarketCap(s.submissions[1]), false);
+  assert.equal(countsTowardMarketCap(s.submissions[2]), true);
+  assert.equal(usedSlots(s, M1), 2);
+  assert.equal(capCheck(s, M1).remaining, 1);
+});
+
+test("tracker: a judged manipulation verdict does not count toward the prize minimum", () => {
+  const s = state();
+  for (let i = 0; i < 3; i++) s.submissions.push(sub(M1, "judged", { verdict: "accepted" }), sub(M2, "judged", { verdict: "irrelevant" }), sub(M3, "judged", { verdict: "accepted" }));
+  s.submissions.push(sub(M3, "judged", { verdict: "manipulation" }));
+  assert.equal(countsTowardQualification(s.submissions.at(-1)!), false);
+  const q = qualification(s);
+  assert.equal(q.judged, 9);
+  assert.equal(q.qualified, false);
+  assert.equal(q.needJudged, 1);
 });

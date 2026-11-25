@@ -1,11 +1,12 @@
 // Builds the evidence package for one fact: link-only when the judge can read the page, otherwise
-// the fallback (key text quoted in the note + a dated text-PDF capture), and for hard-to-fetch
-// sources a dated PNG screenshot (URL + date visible) as well. Never more than 3 files.
+// a fallback. Official cap is 3 items total (note + each link + each file). For hard-to-fetch
+// sources we attach a dated PNG screenshot (URL + date visible) and skip the extra text-PDF so
+// note + link + screenshot stays at 3. A text-PDF is used only when no screenshot is present.
 import fs from "node:fs";
 import path from "node:path";
 import type { Config } from "./config.ts";
 import type { Fact, PreflightResult, QueueItem, Side } from "./types.ts";
-import { MAX_FILES } from "./rules.ts";
+import { MAX_FILES, MAX_ITEMS, itemCount } from "./rules.ts";
 import { textPdf } from "./pdf.ts";
 import { draftNote } from "./drafter.ts";
 import { captureScreenshot, findChrome, type ScreenshotResult } from "./screenshot.ts";
@@ -51,13 +52,12 @@ export async function buildEvidence(a: {
   const dir = path.join(a.cfg.dataDir, "captures");
   let screenshotError: string | undefined;
   if (a.userScreenshot) files.push(checkScreenshotFile(a.userScreenshot));
+  // Official cap: note + each link + each file <= 3. We always send a note and the source link,
+  // so at most one file. Prefer a dated screenshot; only write a text-PDF when there is no image.
+  const roomForFile = () => MAX_ITEMS - itemCount("x", [a.fact.source], files);
   if (mode === "fallback") {
     fs.mkdirSync(dir, { recursive: true });
-    const quote = a.keyText?.trim() || a.fact.text;
-    const file = path.join(dir, `${a.id}-capture-${a.pf.checkedAt.slice(0, 10)}.pdf`);
-    fs.writeFileSync(file, textPdf(`Dated capture for Delphi evidence (FirstSource) - ${a.pf.checkedAt}`, `Source URL: ${a.fact.source}\nPublisher: ${a.fact.publisher}\nFact date: ${a.fact.date}\nCaptured (UTC): ${a.pf.checkedAt}\nWhy a capture: ${[...a.pf.reasons, reason].filter(Boolean).join("; ")}\n\nKey text, quoted from the source:\n"${quote}"\n\nMarket: ${a.question}`));
-    files.push(file);
-    if (!hasImage(files) && a.capture && files.length < MAX_FILES) {
+    if (!hasImage(files) && a.capture && roomForFile() > 0) {
       const out = path.join(dir, `${a.id}-screenshot-${new Date(a.now).toISOString().slice(0, 10)}.png`);
       const r = await a.capture(a.fact.source, out, a.now);
       if (r.ok && r.file) files.push(r.file);
@@ -66,8 +66,31 @@ export async function buildEvidence(a: {
         logEvent(a.cfg.dataDir, { kind: "screenshot_failure", detail: screenshotError, url: a.fact.source, market: a.market, itemId: a.id });
       }
     }
+    if (!hasImage(files) && !reason && roomForFile() > 0) {
+      // Unreadable but not a hard host: a text-PDF capture is the fallback attachment.
+      const quote = a.keyText?.trim() || a.fact.text;
+      const file = path.join(dir, `${a.id}-capture-${a.pf.checkedAt.slice(0, 10)}.pdf`);
+      const body = [
+        `Source URL: ${a.fact.source}`,
+        `Publisher: ${a.fact.publisher}`,
+        `Fact date: ${a.fact.date}`,
+        `Captured (UTC): ${a.pf.checkedAt}`,
+        `Why a capture: ${[...a.pf.reasons, reason].filter(Boolean).join("; ")}`,
+        "",
+        "Key text, quoted from the source:",
+        `"${quote}"`,
+        "",
+        `Market: ${a.question}`,
+      ].join("\n");
+      fs.writeFileSync(file, textPdf(`Dated capture for Delphi evidence (FirstSource) - ${a.pf.checkedAt}`, body));
+      files.push(file);
+    }
+    // If this is a hard source and no screenshot could be captured, leave files empty so the
+    // reviewer can attach one (note + link + screenshot = 3). Do not also add a PDF.
   }
   if (files.length > MAX_FILES) files.length = MAX_FILES;
+  while (itemCount("x", [a.fact.source], files) > MAX_ITEMS) files.pop();
+
   const note = draftNote({ question: a.question, fact: a.fact, side: a.side, preflight: { ...a.pf, readable: mode === "link" }, max: a.cfg.noteMax, screenshot: !!reason || hasImage(files), keyText: a.keyText });
   return { mode, files, requiresScreenshot: !!reason, screenshotReason: reason ?? undefined, screenshotError, note };
 }

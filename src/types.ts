@@ -54,14 +54,14 @@ export interface QueueItem {
   id: string;
   market: string;
   question: string;
-  /** Market evidenceCutoffAt (ISO). Per the FAQ the cutoff IS the submission deadline. */
+  /** Market evidenceCutoffAt (ISO). Official: cutoff is the submission deadline, usually 24h before close. */
   cutoffAt?: string;
   fact: Fact;
   side: Side | null;
   sideCall: SideCall;
   note: string;
   links: string[];
-  files: string[]; // absolute paths on disk, max 3
+  files: string[]; // absolute paths on disk; note + links + files <= 3 items
   preflight: PreflightResult;
   mode: "link" | "fallback";
   status: ItemStatus;

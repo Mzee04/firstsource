@@ -7,7 +7,8 @@ import path from "node:path";
 import { EvidenceClient } from "@gensyn-ai/gensyn-delphi-sdk";
 import { startMock, MOCK_KEY, type Mock } from "../mock/server.ts";
 import { item, state, sub } from "./helpers.ts";
-import { headerValue, intEnv, loadConfig } from "../src/config.ts";
+import { DEFAULT_API_URL, DEFAULT_SITE_URL, headerValue, intEnv, loadConfig } from "../src/config.ts";
+import { buildFeedbackPayload, mapArea, sendFeedback } from "../src/feedbackapi.ts";
 import { makeClient, withTimeout } from "../src/api.ts";
 import { acquireLock, loadState, saveState } from "../src/store.ts";
 import { approvalWarnings, approve, attach, getItem, reject } from "../src/queue.ts";
@@ -220,4 +221,28 @@ test("live: the same fact already sent by another run on this account is blocked
   const before = mock.stats.submitCalls;
   await assert.rejects(submitItem(s, cfg, it.id, { live: true, client: makeClient(cfg), wait: false }), /duplicate of submission/);
   assert.equal(mock.stats.submitCalls, before);
+});
+
+test("config: official site and API defaults, official agent env aliases, note cap 8000", () => {
+  const c = loadConfig({});
+  assert.equal(c.siteUrl, DEFAULT_SITE_URL);
+  assert.equal(c.apiUrl, DEFAULT_API_URL);
+  assert.equal(c.feedbackUrl, "https://feedback.delphi.fyi");
+  const a = loadConfig({ DELPHI_AGENT_ID: "from-official", DELPHI_AGENT_HARNESS: "claude-code", DELPHI_AGENT_MODEL: "none" });
+  assert.deepEqual([a.agentId, a.agentHarness, a.agentModel], ["from-official", "claude-code", "none"]);
+  assert.throws(() => loadConfig({ FIRSTSOURCE_NOTE_MAX: "9000" }), /between 200 and 8000/);
+});
+
+test("feedback: payload is validated and send is refused without FIRSTSOURCE_SEND_FEEDBACK=1", async () => {
+  assert.equal(mapArea("judge"), "judging");
+  assert.equal(mapArea("docs"), "docs");
+  const body = buildFeedbackPayload({ wallet: "0x" + "a".repeat(40), area: "docs", text: "Close times lack a timezone.", title: "Docs timezone" });
+  assert.equal(body.area, "docs");
+  assert.equal(body.topic, "agent-competition-evidence-mining");
+  assert.throws(() => buildFeedbackPayload({ wallet: "not-a-wallet", area: "docs", text: "x" }), /0x/);
+  const cfg = loadConfig({ DELPHI_API_ACCESS_KEY: "k", DELPHI_WALLET_ADDRESS: "0x" + "a".repeat(40) });
+  let called = 0;
+  const f: typeof fetch = async () => { called++; return new Response("{}", { status: 201 }); };
+  await assert.rejects(sendFeedback(cfg, { area: "docs", text: "hello" }, { env: {}, fetch: f }), /FIRSTSOURCE_SEND_FEEDBACK/);
+  assert.equal(called, 0, "no HTTP call without the send flag");
 });

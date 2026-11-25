@@ -2,18 +2,21 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { QueueItem, Side, State } from "./types.ts";
-import { MAX_FILES, capCheck, cutoffCheck, lockSide, releaseSideIfUnused, sideCheck } from "./rules.ts";
+import { MAX_FILES, MAX_ITEMS, capCheck, cutoffCheck, filesCheck, itemCount, itemsCheck, lockSide, releaseSideIfUnused, sideCheck } from "./rules.ts";
 import { checkNovelty } from "./novelty.ts";
 import { screenshotCheck } from "./hardsource.ts";
 
-/** Attachment types the FAQ lists as accepted ("pdf, png, jpg, csv, text"). Anything else is refused. */
+/** Official accepted types: PNG, JPEG, WebP, PDF, TXT, DOC, DOCX, CSV. Screenshots for hard sources still need PNG/JPG. */
 export const FILE_TYPES: Record<string, string> = {
   ".pdf": "application/pdf",
   ".png": "image/png",
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
   ".csv": "text/csv",
   ".txt": "text/plain",
+  ".doc": "application/msword",
+  ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 };
 export const IMAGE_EXT = new Set([".png", ".jpg", ".jpeg"]);
 
@@ -41,7 +44,11 @@ export function approve(state: State, id: string, now = Date.now()): QueueItem {
   const nv = checkNovelty(state, it.market, it.fact.text, { excludeItem: it.id });
   if (!nv.novel) throw new Error(`cannot approve: duplicate of ${nv.duplicateOf}`);
   if (it.files.length > MAX_FILES) throw new Error(`cannot approve: ${it.files.length} files (max ${MAX_FILES})`);
-  for (const f of it.files) if (!fs.existsSync(f)) throw new Error(`cannot approve: file missing ${f}`);
+  const ic = itemsCheck(it.note, it.links, it.files);
+  if (!ic.ok) throw new Error(`cannot approve: ${ic.reason}`);
+  const fc = filesCheck(it.files);
+  if (!fc.ok) throw new Error(`cannot approve: ${fc.reason}`);
+  if (it.note.length > 8_000) throw new Error(`cannot approve: note is ${it.note.length} characters (max 8000)`);
   const ss = screenshotCheck(it);
   if (!ss.ok) throw new Error(`cannot approve: ${ss.reason}`);
   lockSide(state, it.market, it.side!);
@@ -90,6 +97,20 @@ export function attach(state: State, id: string, file: string): QueueItem {
   if (fs.statSync(abs).size === 0) throw new Error(`file ${abs} is empty`);
   if (it.files.includes(abs)) return it;
   if (it.files.length >= MAX_FILES) throw new Error(`max ${MAX_FILES} files per submission; remove one first with: detach ${it.id} <file>`);
+  // Official: note + each link + each file <= 3 items. If this is the required screenshot
+  // and a generated text-PDF is what puts us over, drop that PDF so the screenshot can go on.
+  const next = [...it.files, abs];
+  if (itemCount(it.note, it.links, next) > MAX_ITEMS) {
+    const ext = path.extname(abs).toLowerCase();
+    const isShot = ext === ".png" || ext === ".jpg" || ext === ".jpeg";
+    const pdfIdx = isShot && it.requiresScreenshot ? it.files.findIndex((f) => path.extname(f).toLowerCase() === ".pdf" && path.basename(f).includes("-capture-")) : -1;
+    if (pdfIdx >= 0) it.files.splice(pdfIdx, 1);
+  }
+  if (itemCount(it.note, it.links, [...it.files, abs]) > MAX_ITEMS) {
+    throw new Error(`max ${MAX_ITEMS} items per submission (the note, each link and each file count as 1); detach one first with: detach ${it.id} <file>`);
+  }
+  const fc = filesCheck([...it.files, abs]);
+  if (!fc.ok) throw new Error(fc.reason!);
   it.files.push(abs);
   return it;
 }

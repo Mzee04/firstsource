@@ -7,7 +7,7 @@ import path from "node:path";
 import { EvidenceApiError, TermsNotAcceptedError, type EvidenceClient, type Submission } from "@gensyn-ai/gensyn-delphi-sdk";
 import type { Config } from "./config.ts";
 import type { QueueItem, State, SubmissionRecord } from "./types.ts";
-import { MAX_FILES, capCheck, cutoffCheck, sideCheck } from "./rules.ts";
+import { MAX_FILES, capCheck, cutoffCheck, filesCheck, itemsCheck, sideCheck } from "./rules.ts";
 import { checkNovelty } from "./novelty.ts";
 import { FILE_TYPES, getItem } from "./queue.ts";
 import { recordFrom } from "./api.ts";
@@ -37,6 +37,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export function filesFor(item: QueueItem): File[] {
   if (item.files.length > MAX_FILES) throw new Error(`max ${MAX_FILES} files`);
+  const fc = filesCheck(item.files);
+  if (!fc.ok) throw new Error(fc.reason!);
   return item.files.map((f) => {
     const type = FILE_TYPES[path.extname(f).toLowerCase()];
     if (!type) throw new Error(`file type of ${path.basename(f)} is not accepted`);
@@ -57,6 +59,11 @@ export function localChecks(state: State, item: QueueItem, remoteRemaining?: num
   const nv = checkNovelty(state, item.market, item.fact.text, { excludeItem: item.id });
   if (!nv.novel) errs.push(`duplicate of ${nv.duplicateOf}`);
   if (item.files.length > MAX_FILES) errs.push(`too many files (${item.files.length})`);
+  const ic = itemsCheck(item.note, item.links, item.files);
+  if (!ic.ok) errs.push(ic.reason!);
+  const fc = filesCheck(item.files);
+  if (!fc.ok) errs.push(fc.reason!);
+  if (item.note.length > 8_000) errs.push(`note is ${item.note.length} characters (max 8000)`);
   const ss = screenshotCheck(item);
   if (!ss.ok) errs.push(ss.reason!);
   return errs;
@@ -74,6 +81,13 @@ export interface SubmitOutcome {
   alreadyLanded?: boolean;
   /** Live only: how many POSTs this call made (all with the same Idempotency-Key). */
   attempts?: number;
+}
+
+
+/** OpenAPI lists submissionsPerMarket; SDK 2.4.1's EvidenceLimits type does not yet. */
+function submissionsPerMarketOf(limits: object): number | undefined {
+  const v = (limits as { submissionsPerMarket?: unknown }).submissionsPerMarket;
+  return typeof v === "number" ? v : undefined;
 }
 
 export async function submitItem(
@@ -105,7 +119,12 @@ export async function submitItem(
 
   const { data: terms } = await client.getTerms();
   if (!terms.acceptedAt) throw new Error(`live submit refused: evidence terms ${terms.version} not accepted for this account. The account owner must read ${terms.url} and accept them (FirstSource never accepts on its own).`);
-  // SDK 2.4.0 README: check listSubmissions({ market }) before submitting, so the account never sends
+  // Official: check GET /v1/limits before every batch (hourly cap can change; Restricted tier is 1/market).
+  const { data: limits } = await client.getLimits();
+  if ((limits.submitsLeftThisHour ?? 0) <= 0) {
+    throw new Error(`live submit refused: no submissions left this UTC hour (resets at ${limits.hourEndsAt ?? "the next hour"})`);
+  }
+  // SDK / official docs: check listSubmissions({ market }) before submitting, so the account never sends
   // the same information twice (another run, another machine, or a lost state file).
   await syncMarket(state, client, item.market);
   if (item.status === "submitted") {
@@ -118,6 +137,11 @@ export async function submitItem(
   if (!entry.canSubmit) throw new Error(`live submit refused by entry state: ${entry.reason ?? "cannot submit"}`);
   const remoteErrs = localChecks(state, item, entry.remainingOnMarket, Date.now());
   if (remoteErrs.length) throw new Error(`blocked: ${remoteErrs.join("; ")}`);
+  const perMarket = submissionsPerMarketOf(limits);
+  if (perMarket !== undefined) {
+    const cc = capCheck(state, item.market, { remoteRemaining: entry.remainingOnMarket, excludingItem: item.id, perMarket });
+    if (!cc.ok) throw new Error(`blocked: ${cc.reason}`);
+  }
 
   // Send with the item's fixed key. On a timeout / dropped connection the request may still have
   // landed (FAQ: it then shows up in GET /submissions), so: check our submissions on this market
@@ -196,7 +220,7 @@ const sameNote = (a: string, b: string) => a.replace(/\r\n?/g, "\n").trim() === 
 function reconcile(state: State, s: Submission, rec: SubmissionRecord): QueueItem | undefined {
   const byId = state.items.find((i) => i.submissionId === s.id);
   if (byId) return byId;
-  // If the API echoes the Idempotency-Key on list entries (not in SDK 2.4.0 types, but list entries
+  // If the API echoes the Idempotency-Key on list entries (not in the published SDK types, but list entries
   // keep extra keys), that is the strongest match. Otherwise fall back to market + identical note.
   const echoed = (s as unknown as Record<string, unknown>).idempotencyKey;
   const byKey = typeof echoed === "string" ? state.items.find((i) => i.status === "approved" && !i.submissionId && i.idempotencyKey === echoed) : undefined;

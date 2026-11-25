@@ -14,7 +14,8 @@ import { draftFeedbackMarkdown, logEvent, logVerdicts, readLog } from "./feedbac
 import { findChrome } from "./screenshot.ts";
 import { screenshotCheck } from "./hardsource.ts";
 import { submitItem, sync } from "./submit.ts";
-import { makeClient } from "./api.ts";
+import { explainEvidenceError, makeClient } from "./api.ts";
+import { sendFeedback } from "./feedbackapi.ts";
 import { qualification, addFeedback, feedbackMarkdown } from "./tracker.ts";
 import { lessonLines, learn } from "./learn.ts";
 import { preflight } from "./preflight.ts";
@@ -23,7 +24,7 @@ import { lockedSide } from "./rules.ts";
 
 const [cmd = "help", ...rest] = process.argv.slice(2);
 // Options that take a value (`--date 2026-11-20`); everything else starting with -- is a boolean flag.
-const VALUE_OPTS = new Set(["--date", "--text", "--side", "--screenshot", "--question", "--publisher", "--out", "--cutoff"]);
+const VALUE_OPTS = new Set(["--date", "--text", "--side", "--screenshot", "--question", "--publisher", "--out", "--cutoff", "--title", "--market", "--submission"]);
 const opts: Record<string, string> = {};
 const positional: string[] = [];
 for (let i = 0; i < rest.length; i++) {
@@ -160,7 +161,7 @@ async function main() {
     }
     case "sync": {
       let r;
-      try { r = await sync(state, makeClient(cfg)); } catch (e) { logEvent(cfg.dataDir, { kind: (e as { code?: string }).code ? "api_error" : "network_error", code: (e as { code?: string }).code, detail: `sync: ${(e as Error).message}` }); throw e; }
+      try { r = await sync(state, makeClient(cfg)); } catch (e) { logEvent(cfg.dataDir, { kind: (e as { code?: string }).code ? "api_error" : "network_error", code: (e as { code?: string }).code, detail: `sync: ${(e as Error).message}` }); throw new Error(explainEvidenceError(e)); }
       save();
       const nv = logVerdicts(cfg.dataDir, state);
       if (nv) console.log(`logged ${nv} new verdict rationale(s) to the feedback log`);
@@ -198,32 +199,47 @@ async function main() {
         fs.writeFileSync(f, draftFeedbackMarkdown(events, state.feedback));
         console.log(`wrote ${f} from ${events.length} logged event(s): a DRAFT for you to review. Nothing was sent.`);
       }
+      else if (sub === "send") {
+        // Human-only. Needs FIRSTSOURCE_SEND_FEEDBACK=1 and DELPHI_WALLET_ADDRESS. Never default-on.
+        const area = args[1];
+        const text = args.slice(2).join(" ");
+        const result = await sendFeedback(cfg, { area, text, title: opts.title, marketId: opts.market, submissionId: opts.submission });
+        console.log(`sent feedback ${result.id} at ${result.createdAt} (nothing else was posted)`);
+      }
       else for (const f of state.feedback) console.log(`${f.at.slice(0, 10)} [${f.category}] ${f.text}`);
       break;
     }
     case "terms": {
-      const { data } = await makeClient(cfg).getTerms();
-      console.log(`terms version ${data.version}; accepted: ${data.acceptedAt ?? "NO"}; read: ${data.url}`);
+      try {
+        const { data } = await makeClient(cfg).getTerms();
+        console.log(`terms version ${data.version}; accepted: ${data.acceptedAt ?? "NO"}; read: ${data.url}`);
+      } catch (e) { throw new Error(explainEvidenceError(e)); }
       break;
     }
     case "limits": {
-      const { data } = await makeClient(cfg).getLimits();
-      console.log(data);
+      try {
+        const { data } = await makeClient(cfg).getLimits();
+        console.log(data);
+      } catch (e) { throw new Error(explainEvidenceError(e)); }
       break;
     }
     case "entry": {
-      const { data } = await makeClient(cfg).getEntryState(args[0]);
-      console.log(data);
+      try {
+        const { data } = await makeClient(cfg).getEntryState(args[0]);
+        console.log(data);
+      } catch (e) { throw new Error(explainEvidenceError(e)); }
       break;
     }
     case "accept-terms": {
       // Human-only step. Runs only when the operator sets FIRSTSOURCE_ACCEPT_TERMS to the exact current version.
-      const client = makeClient(cfg);
-      const { data: t } = await client.getTerms();
-      if (t.acceptedAt) { console.log(`already accepted ${t.version} at ${t.acceptedAt}`); break; }
-      if (process.env.FIRSTSOURCE_ACCEPT_TERMS !== t.version) { console.log(`Not accepting. Read ${t.url}, then (only if you agree) run with FIRSTSOURCE_ACCEPT_TERMS=${t.version}`); break; }
-      const { data } = await client.acceptTerms(t.version);
-      console.log(`accepted terms ${data.version} at ${data.acceptedAt}`);
+      try {
+        const client = makeClient(cfg);
+        const { data: tr } = await client.getTerms();
+        if (tr.acceptedAt) { console.log(`already accepted ${tr.version} at ${tr.acceptedAt}`); break; }
+        if (process.env.FIRSTSOURCE_ACCEPT_TERMS !== tr.version) { console.log(`Not accepting. Read ${tr.url}, then (only if you agree) run with FIRSTSOURCE_ACCEPT_TERMS=${tr.version}`); break; }
+        const { data } = await client.acceptTerms(tr.version);
+        console.log(`accepted terms ${data.version} at ${data.acceptedAt}`);
+      } catch (e) { throw new Error(explainEvidenceError(e)); }
       break;
     }
     default:
@@ -235,7 +251,7 @@ async function main() {
   list [status]               list queue (pending|approved|rejected|submitted)
   show <id>                   full item + drafted note
   set-side <id> YES|NO        set/override the side (one side per market is enforced)
-  attach <id> <file>          add a screenshot/PDF (max 3 files)
+  attach <id> <file>          add a screenshot/PDF (max 3 items total: note + each link + each file)
   detach <id> <file|n>        remove an attachment from a pending item
   add-manual <market> <url> --date YYYY-MM-DD --text "quoted key text" [--side YES|NO] [--screenshot shot.png]
                               queue evidence from X/Reddit/paywalled pages you read yourself; needs a
@@ -249,7 +265,9 @@ async function main() {
   preflight <url> [key text]  check whether a plain fetch (like the judge) can read a page
   feedback add <cat> <text> | feedback list | feedback export
   feedback draft [--out f.md] deduplicated feedback notes from data/feedback-log.jsonl (draft; never sent)
-  terms | limits | entry <market>   read-only API calls
+  feedback send <area> <text> [--title t] [--market 0x…] [--submission id]
+                              POST to feedback.delphi.fyi; needs FIRSTSOURCE_SEND_FEEDBACK=1 and DELPHI_WALLET_ADDRESS
+  terms | limits | entry <market>   read-only API calls (official: check limits before each batch)
   accept-terms                human-only; needs FIRSTSOURCE_ACCEPT_TERMS=<version>`);
   }
 }

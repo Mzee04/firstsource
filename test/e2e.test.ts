@@ -60,9 +60,8 @@ test("end to end: scan -> review -> dry run -> gated live -> judged -> sync -> t
   assert.equal(cpi.side, "YES");
   assert.equal(cpi.mode, "link");
   const orion = r.added.find((i) => i.fact.text.includes("Vega-2"))!;
-  assert.equal(orion.mode, "fallback", "paywalled page -> pasted text + capture");
-  assert.equal(orion.files.length, 1);
-  assert.ok(fs.readFileSync(orion.files[0]).subarray(0, 5).toString() === "%PDF-");
+  assert.equal(orion.mode, "fallback", "paywalled page -> pasted text + screenshot required");
+  assert.equal(orion.files.length, 0, "no text-PDF: note + link leave room for one screenshot");
   assert.equal(orion.requiresScreenshot, true, "paywall -> hard-to-fetch -> screenshot required");
   assert.match(orion.note, /Key text \(quoted from the source/);
   assert.match(orion.note, /dated screenshot showing the URL and capture date/);
@@ -114,12 +113,12 @@ test("end to end: scan -> review -> dry run -> gated live -> judged -> sync -> t
   assert.ok(outs.every((o) => o.status === "judged"));
   const orionOut = outs.find((o) => o.itemId === orion.id)!;
   assert.equal(orionOut.verdict, "accepted", "fallback capture made the paywalled fact readable to the (mock) judge");
-  assert.equal(mock.subs.find((s) => s.id === orionOut.submissionId)!.files.length, 2, "text capture + screenshot");
+  assert.equal(mock.subs.find((s) => s.id === orionOut.submissionId)!.files.length, 1, "dated screenshot only (3-item cap)");
   // agent ID / harness / model headers reach the API on every submit
   assert.ok(mock.stats.agentHeaders.length > 0);
   for (const h of mock.stats.agentHeaders) {
     assert.equal(h.id, "firstsource");
-    assert.match(h.harness, /^firstsource\/0\.2/);
+    assert.match(h.harness, /^firstsource\/0\.3/);
     assert.equal(h.model, "rule-based (no LLM)");
   }
 

@@ -74,7 +74,7 @@ test("add-manual: an X post without a screenshot is refused (no browser availabl
   assert.equal(calls.length, 0, "X is never fetched");
 });
 
-test("add-manual: with a user screenshot it is queued with quoted key text, PDF capture + PNG, max 3 files", async () => {
+test("add-manual: with a user screenshot it is queued with quoted key text and one PNG (3 items: note + link + file)", async () => {
   const dir = tmp("fs-man2-");
   const cfg = loadConfig(envFor(dir));
   const s = loadState(cfg.dataDir);
@@ -83,20 +83,18 @@ test("add-manual: with a user screenshot it is queued with quoted key text, PDF 
   assert.equal(it.mode, "fallback");
   assert.ok(it.note.includes(`"${X_TEXT}"`), "key text quoted in the note");
   assert.match(it.note, /dated screenshot showing the URL and capture date is attached/);
-  assert.equal(it.files.length, 2);
-  assert.ok(it.files.some((f) => f.endsWith(".png")) && it.files.some((f) => f.endsWith(".pdf")));
+  assert.equal(it.files.length, 1, "screenshot only: a text-PDF would push the bundle over the 3-item cap");
+  assert.ok(it.files[0].endsWith(".png"));
   assert.equal(it.idempotencyKey, uuidFromSeed(it.id), "deterministic key stored at queue time");
-  // the 3-file cap holds, and removing the screenshot blocks approval again
-  attach(s, it.id, pngFile(dir, "extra.png"));
-  assert.throws(() => attach(s, it.id, pngFile(dir, "fourth.png")), /max 3 files/);
-  detach(s, it.id, "extra.png");
+  // official cap is 3 items (note + link + screenshot); a fourth item is refused
+  assert.throws(() => attach(s, it.id, pngFile(dir, "extra.png")), /max 3 items/);
   detach(s, it.id, "shot.png");
   assert.throws(() => approve(s, it.id), /needs a dated screenshot/);
   attach(s, it.id, pngFile(dir, "again.png"));
   approve(s, it.id);
   const o = await submitItem(s, cfg, it.id);
   const req = JSON.parse(fs.readFileSync(o.dryRunFile!, "utf8"));
-  assert.equal(req.params.files.length, 2);
+  assert.equal(req.params.files.length, 1);
   assert.ok(req.params.files.some((f: { type: string }) => f.type === "image/png"));
 });
 
@@ -122,11 +120,12 @@ test("scan: a paywalled source is flagged, captured automatically when a capture
   await scan(s, cfg, { capture: cap });
   const orion = s.items.find((i) => i.fact.text.includes("Vega-2"))!;
   assert.equal(orion.requiresScreenshot, true);
-  assert.equal(orion.files.length, 2, "text PDF + auto screenshot");
+  assert.equal(orion.files.length, 1, "auto screenshot only; a PDF would exceed the 3-item cap");
+  assert.ok(orion.files[0].endsWith(".png"));
   const s2 = loadState(tmp("fs-scanshot2-"));
   await scan(s2, loadConfig(envFor(tmp("fs-scanshot3-"))), { capture: null });
   const o2 = s2.items.find((i) => i.fact.text.includes("Vega-2"))!;
-  assert.equal(o2.files.length, 1);
+  assert.equal(o2.files.length, 0, "no screenshot available: leave the file slot free");
   assert.throws(() => approve(s2, o2.id), /needs a dated screenshot/);
 });
 
@@ -340,7 +339,7 @@ test("preflight: an RSS/Atom content type is readable (it was refused before)", 
 test("agent headers: ID, harness and model are configurable, validated, and safe to print", () => {
   const c = loadConfig({ AGENT_ID: "fs-mzee", AGENT_HARNESS: "firstsource/0.2 custom", AGENT_MODEL: "none" });
   assert.deepEqual([c.agentId, c.agentHarness, c.agentModel], ["fs-mzee", "firstsource/0.2 custom", "none"]);
-  assert.match(loadConfig({}).agentHarness, /^firstsource\/0\.2/);
+  assert.match(loadConfig({}).agentHarness, /^firstsource\/0\.3/);
   assert.throws(() => loadConfig({ AGENT_HARNESS: "x".repeat(65) }), /AGENT_HARNESS/);
   assert.throws(() => loadConfig({ FIRSTSOURCE_SCREENSHOT: "maybe" }), /FIRSTSOURCE_SCREENSHOT/);
   assert.throws(() => loadConfig({ FIRSTSOURCE_MAX_ATTEMPTS: "9" }), /FIRSTSOURCE_MAX_ATTEMPTS/);

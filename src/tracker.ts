@@ -1,6 +1,6 @@
 // Part 12: qualification tracker + feedback-bounty log.
 import type { FeedbackEntry, State } from "./types.ts";
-import { MAX_PER_MARKET, QUAL_JUDGED, QUAL_MARKETS, usedSlots } from "./rules.ts";
+import { MAX_PER_MARKET, QUAL_JUDGED, QUAL_MARKETS, countsTowardQualification, usedSlots } from "./rules.ts";
 import { outcomeOf } from "./learn.ts";
 
 export interface Qualification {
@@ -19,17 +19,17 @@ export function qualification(state: State): Qualification {
   for (const i of state.items) if (i.status === "approved" || i.status === "submitted") markets.add(i.market.toLowerCase());
   const perMarket = [...markets].map((m) => {
     const subs = state.submissions.filter((s) => s.market.toLowerCase() === m);
-    const judged = subs.filter((s) => s.status === "judged");
+    const judged = subs.filter(countsTowardQualification);
     return {
       market: m,
       submitted: subs.length,
-      judged: judged.length,
+      judged: judged.length, // excludes judged `manipulation` verdicts
       accepted: judged.filter((s) => outcomeOf(s) === "accepted").length,
       reserved: state.items.filter((i) => i.market.toLowerCase() === m && i.status === "approved").length,
       slotsLeft: Math.max(0, MAX_PER_MARKET - usedSlots(state, m)),
     };
   });
-  const judged = state.submissions.filter((s) => s.status === "judged").length;
+  const judged = state.submissions.filter(countsTowardQualification).length;
   const judgedMarkets = perMarket.filter((p) => p.judged > 0).length;
   const pending = state.submissions.filter((s) => s.status === "queued" || s.status === "judging").length;
   return {
